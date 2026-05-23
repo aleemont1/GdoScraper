@@ -1,0 +1,23 @@
+# Ambienti virtuali gestiti da uv
+.venv/
+
+# Cache di Python
+__pycache__/
+*.py[cod]
+*.class
+
+# Database SQLite locale
+*.db
+*.sqlite3
+
+# Cartelle di download
+downloads/
+
+# Chiavi e file d'ambiente (MOLTO IMPORTANTE)
+.env
+
+# File di IDE
+.vscode/
+.idea/
+.antigravitycli/
+init_antigravity.sh

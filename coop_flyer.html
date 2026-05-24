@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Flyer Viewer - Coop Parser</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; padding: 20px; }
+        header { text-align: center; margin-bottom: 30px; padding: 20px; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        input[type="file"] { margin-top: 15px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; }
+        .flyer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; }
+        .product-card { background-color: #fff; border-radius: 8px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; flex-direction: column; align-items: center; text-align: center; }
+        .product-card:hover { transform: translateY(-5px); box-shadow: 0 6px 12px rgba(0,0,0,0.15); }
+        .product-image { width: 100%; height: 200px; object-fit: contain; margin-bottom: 15px; }
+        .product-brand { font-size: 0.85rem; color: #7f8c8d; text-transform: uppercase; margin-bottom: 5px; }
+        .product-name { font-size: 1rem; font-weight: 600; margin-bottom: 5px; color: #2c3e50; }
+        .product-weight { font-size: 0.85rem; color: #95a5a6; margin-bottom: 10px; flex-grow: 1; }
+        .product-price { font-size: 1.25rem; font-weight: 700; color: #e74c3c; background-color: #fcebeb; padding: 5px 10px; border-radius: 4px; margin-bottom: 5px; }
+        .product-unit-price { font-size: 0.75rem; color: #7f8c8d; }
+        .error-message { color: #e74c3c; font-weight: bold; text-align: center; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Coop Flyer Viewer</h1>
+        <p>Select the JSON payload to visualize the Server-Driven UI promotions.</p>
+        <input type="file" id="jsonFileInput" accept=".json">
+    </header>
+
+    <main id="flyerGrid" class="flyer-grid"></main>
+
+    <script>
+        /**
+         * @typedef {Object} NormalizedProduct
+         * @property {string} name
+         * @property {string} brand
+         * @property {string} weight
+         * @property {string} price
+         * @property {string} unitPrice
+         * @property {string} imageUrl
+         */
+
+        document.getElementById('jsonFileInput').addEventListener('change', handleFileSelect);
+
+        /**
+         * Handles the file upload event.
+         * @param {Event} event 
+         */
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const rawJson = JSON.parse(e.target.result);
+                    processAndRenderData(rawJson);
+                } catch (error) {
+                    showError("Invalid JSON file.");
+                    console.error("JSON Parsing Error: ", error);
+                }
+            };
+            reader.onerror = function() { showError("Error reading the file."); };
+            reader.readAsText(file);
+        }
+
+        /**
+         * Scans layout nodes to find pricing info.
+         * @param {Object} rawItem 
+         * @returns {Object} Extracted price details
+         */
+        function extractPricesFromLayout(rawItem) {
+            const layoutKeys = ["CXTop", "CXBottom", "SXTop", "SXBottom", "DXTop", "DXBottom"];
+            let mainPrice = "N/A";
+            let unitPrice = "";
+
+            layoutKeys.forEach(key => {
+                const node = rawItem[key];
+                if (node && Array.isArray(node.txt)) {
+                    node.txt.forEach(textLine => {
+                        if (!textLine) return;
+                        
+                        const cleanedLine = textLine.replace("\u20ac", "€");
+                        if (cleanedLine.includes("al kg") || cleanedLine.includes("al lt")) {
+                            unitPrice = cleanedLine;
+                        } else if (cleanedLine.includes("€") || cleanedLine.match(/\d+,\d{2}/)) {
+                            mainPrice = cleanedLine;
+                        }
+                    });
+                }
+            });
+
+            return { mainPrice, unitPrice };
+        }
+
+        /**
+         * Normalizes raw Coop API data.
+         * @param {Object} rawItem 
+         * @returns {NormalizedProduct}
+         */
+        function extractProductData(rawItem) {
+            const prices = extractPricesFromLayout(rawItem);
+            
+            return {
+                name: rawItem.desc_promo || "Unknown Product",
+                brand: rawItem.brand || "",
+                weight: rawItem.desc_promo2 || "",
+                price: prices.mainPrice,
+                unitPrice: prices.unitPrice,
+                imageUrl: rawItem.img || "https://via.placeholder.com/200?text=No+Image"
+            };
+        }
+
+        /**
+         * Processes JSON and generates UI.
+         * @param {Object} jsonData 
+         */
+        function processAndRenderData(jsonData) {
+            const gridContainer = document.getElementById('flyerGrid');
+            gridContainer.innerHTML = '';
+
+            let productsArray = [];
+            if (jsonData.promos && Array.isArray(jsonData.promos)) {
+                productsArray = jsonData.promos;
+            } else if (Array.isArray(jsonData)) {
+                productsArray = jsonData;
+            } else {
+                showError("Could not find the 'promos' array in the JSON.");
+                return;
+            }
+
+            productsArray.forEach(rawItem => {
+                const product = extractProductData(rawItem);
+                const cardElement = createProductCardElement(product);
+                gridContainer.appendChild(cardElement);
+            });
+        }
+
+        /**
+         * Creates an HTML card element for a product.
+         * @param {NormalizedProduct} product
+         * @returns {HTMLElement}
+         */
+        function createProductCardElement(product) {
+            const card = document.createElement('div');
+            card.className = 'product-card';
+
+            const img = document.createElement('img');
+            img.className = 'product-image';
+            img.src = product.imageUrl;
+            img.alt = product.name;
+            img.onerror = function() { this.src = "https://via.placeholder.com/200?text=Image+Not+Found"; };
+
+            const brand = document.createElement('div');
+            brand.className = 'product-brand';
+            brand.textContent = product.brand;
+
+            const title = document.createElement('h2');
+            title.className = 'product-name';
+            title.textContent = product.name;
+
+            const weight = document.createElement('div');
+            weight.className = 'product-weight';
+            weight.textContent = product.weight;
+
+            const price = document.createElement('div');
+            price.className = 'product-price';
+            price.textContent = product.price;
+
+            const unitPrice = document.createElement('div');
+            unitPrice.className = 'product-unit-price';
+            unitPrice.textContent = product.unitPrice;
+
+            if (product.brand) card.appendChild(brand);
+            card.appendChild(img);
+            card.appendChild(title);
+            if (product.weight) card.appendChild(weight);
+            card.appendChild(price);
+            if (product.unitPrice) card.appendChild(unitPrice);
+
+            return card;
+        }
+
+        /**
+         * Displays an error message.
+         * @param {string} message 
+         */
+        function showError(message) {
+            const gridContainer = document.getElementById('flyerGrid');
+            gridContainer.innerHTML = `<div class="error-message">${message}</div>`;
+        }
+    </script>
+</body>
+</html>

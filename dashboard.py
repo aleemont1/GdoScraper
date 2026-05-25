@@ -145,10 +145,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             color: var(--text-secondary);
         }
 
-        /* Color accents for stats */
         .kpi-total .kpi-value { color: #ffffff; }
         .kpi-coop .kpi-value { color: var(--accent-green); }
         .kpi-conad .kpi-value { color: var(--accent-orange); }
+        .kpi-ins .kpi-value { color: var(--accent-purple); }
         .kpi-avg .kpi-value { color: var(--accent-blue); }
 
         /* Control Panel / Filters Card */
@@ -159,7 +159,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             padding: 22px;
             margin-bottom: 30px;
             backdrop-filter: var(--glass-blur);
+            position: relative;
+            z-index: 10;
         }
+
 
         .filters-grid {
             display: grid;
@@ -352,6 +355,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             border: 1px solid rgba(245, 158, 11, 0.2);
         }
 
+        .badge-ins {
+            background-color: rgba(139, 92, 246, 0.12);
+            color: var(--accent-purple);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+        }
+
         .badge-promo {
             background-color: rgba(139, 92, 246, 0.12);
             color: var(--accent-purple);
@@ -531,7 +540,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         <div class="kpi-card kpi-conad">
             <span class="kpi-label">Conad Offers</span>
             <span class="kpi-value" id="kpiConad">0</span>
-            <span class="kpi-footer">From Recursive XY-Cut PDF flyers</span>
+            <span class="kpi-footer">From Column-First grid segments</span>
+        </div>
+        <div class="kpi-card kpi-ins">
+            <span class="kpi-label">IN's Offers</span>
+            <span class="kpi-value" id="kpiIns">0</span>
+            <span class="kpi-footer">From Crawler & Dual-Engine OCR</span>
         </div>
         <div class="kpi-card kpi-avg">
             <span class="kpi-label">Avg Promo Price</span>
@@ -554,6 +568,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     <option value="ALL">All Supermarkets</option>
                     <option value="COOP">Coop</option>
                     <option value="CONAD">Conad</option>
+                    <option value="INS">IN's Mercato</option>
                 </select>
             </div>
 
@@ -691,6 +706,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const total = allOffers.length;
             const coopCount = allOffers.filter(o => o.supermarket === 'COOP').length;
             const conadCount = allOffers.filter(o => o.supermarket === 'CONAD').length;
+            const insCount = allOffers.filter(o => o.supermarket === 'INS').length;
             
             // Calculate average price of promos
             let avgPrice = 0;
@@ -702,6 +718,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             document.getElementById('kpiTotal').textContent = total;
             document.getElementById('kpiCoop').textContent = coopCount;
             document.getElementById('kpiConad').textContent = conadCount;
+            document.getElementById('kpiIns').textContent = insCount;
             document.getElementById('kpiAvg').textContent = `€ ${avgPrice.toFixed(2)}`;
         }
 
@@ -788,7 +805,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 // Supermarket Badge
                 const superBadge = offer.supermarket === 'COOP' 
                     ? `<span class="badge badge-coop">Coop</span>` 
-                    : `<span class="badge badge-conad">Conad</span>`;
+                    : offer.supermarket === 'CONAD'
+                    ? `<span class="badge badge-conad">Conad</span>`
+                    : `<span class="badge badge-ins">IN's</span>`;
                     
                 // Visual Preview Card Crop
                 let previewHtml = `<span style="color: var(--text-secondary); font-size: 0.8rem;">-</span>`;

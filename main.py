@@ -46,6 +46,11 @@ def main() -> None:
         help="Limit the maximum number of flyers downloaded and parsed in this run (default: no limit)."
     )
     parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Enable multi-process parallel flyer parsing to exploit multi-core CPUs."
+    )
+    parser.add_argument(
         "--db-path",
         default="storage/promotions.db",
         help="Path to the SQLite database file (default: storage/promotions.db)."
@@ -70,7 +75,8 @@ def main() -> None:
         driver = ConadSupermarketDriver(
             max_flyers=args.max_flyers,
             radius=args.radius,
-            choose_store=args.choose_store
+            choose_store=args.choose_store,
+            parallel=args.parallel
         )
         
     if not driver:

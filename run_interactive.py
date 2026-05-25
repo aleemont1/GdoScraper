@@ -3,7 +3,9 @@ import os
 import sys
 import subprocess
 import sqlite3
-import re
+import time
+import glob
+import shutil
 
 # ANSI Color Codes for premium visual TUI
 BLUE = "\033[94m"
@@ -25,18 +27,22 @@ def print_banner():
     """
     print(banner)
 
-def run_command(cmd_list):
+def run_command(cmd_list, capture_time=False):
     print(f"\n{YELLOW}{BOLD}Executing:{RESET} {' '.join(cmd_list)}")
     print(f"{YELLOW}" + "-"*60 + f"{RESET}")
+    start_time = time.time()
     try:
         # We run the command keeping stdin/stdout interactive
         subprocess.run(cmd_list, check=True)
+        elapsed = time.time() - start_time
+        if capture_time:
+            print(f"\n{GREEN}{BOLD}Execution completed successfully in {elapsed:.2f} seconds!{RESET}")
     except subprocess.CalledProcessError as e:
         print(f"\n{RED}{BOLD}Error:{RESET} Command failed with exit code {e.returncode}")
     except KeyboardInterrupt:
         print(f"\n{RED}{BOLD}Execution interrupted by user.{RESET}")
     print(f"{YELLOW}" + "-"*60 + f"{RESET}")
-    input(f"\nPress Enter to return to the main menu...")
+    input(f"\nPress Enter to continue...")
 
 def scrape_coop_menu():
     print(f"\n{GREEN}{BOLD}=== COOP SCRAPER SETTINGS ==={RESET}")
@@ -84,6 +90,11 @@ def scrape_conad_menu():
         if choose_store == "y":
             cmd.append("--choose-store")
             
+    # Multiprocessing parallel parsing choice
+    parallel = input(f"Enable multi-process parallel flyer parsing? [y/N]: ").strip().lower()
+    if parallel == "y":
+        cmd.append("--parallel")
+
     # Optional limits
     max_flyers = input(f"Limit max flyer downloads? [Enter for no limit, or integer]: ").strip()
     if max_flyers.isdigit():
@@ -93,7 +104,7 @@ def scrape_conad_menu():
     if db_path:
         cmd.extend(["--db-path", db_path])
         
-    run_command(cmd)
+    run_command(cmd, capture_time=True)
 
 def launch_dashboard():
     print(f"\n{GREEN}{BOLD}=== LAUNCHING VISUAL SPA DASHBOARD ==={RESET}")
@@ -164,19 +175,118 @@ def display_db_stats():
         
     input("\nPress Enter to return to main menu...")
 
+def dev_tools_menu():
+    while True:
+        os.system('clear' if os.name == 'posix' else 'cls')
+        print(f"\n{RED}{BOLD}=== DEVELOPER TOOLS & benchmark utilities ==={RESET}")
+        print("Select a developer option:")
+        print(f"  [{CYAN}1{RESET}] Clear SQLite Database (reset promotions.db)")
+        print(f"  [{CYAN}2{RESET}] Clear Cropped Images (delete all cached product PNGs)")
+        print(f"  [{CYAN}3{RESET}] Clear Downloaded Conad PDF Flyer Cache")
+        print(f"  [{RED}4{RESET}] {BOLD}FULL STORAGE WIPE{RESET} (Reset DB, Images, and PDFs)")
+        print("-"*65)
+        print(f"  [{GREEN}5{RESET}] {BOLD}Benchmark{RESET}: Run Conad Scrape (All Flyers) - {BOLD}Sequential Mode{RESET}")
+        print(f"  [{GREEN}6{RESET}] {BOLD}Benchmark{RESET}: Run Conad Scrape (All Flyers) - {BOLD}Parallel Mode{RESET}")
+        print(f"  [{GREEN}7{RESET}] {BOLD}Preset{RESET}: Run Full Cesena Scrape (Coop + Conad in Parallel)")
+        print("-"*65)
+        print(f"  [{YELLOW}8{RESET}] Return to Main Menu")
+        print()
+        
+        choice = input("Select developer option [1-8]: ").strip()
+        
+        if choice == "1":
+            db_path = "storage/promotions.db"
+            if os.path.exists(db_path):
+                os.remove(db_path)
+                print(f"\n{GREEN}Database '{db_path}' cleared successfully!{RESET}")
+            else:
+                print(f"\n{YELLOW}Database '{db_path}' does not exist.{RESET}")
+            time.sleep(1.5)
+            
+        elif choice == "2":
+            img_dir = "storage/images"
+            if os.path.exists(img_dir):
+                shutil.rmtree(img_dir)
+                os.makedirs(img_dir, exist_ok=True)
+                print(f"\n{GREEN}All cropped images inside '{img_dir}/' deleted!{RESET}")
+            else:
+                print(f"\n{YELLOW}Images directory '{img_dir}' does not exist.{RESET}")
+            time.sleep(1.5)
+            
+        elif choice == "3":
+            pdf_dir = "downloads/conad"
+            if os.path.exists(pdf_dir):
+                shutil.rmtree(pdf_dir)
+                os.makedirs(pdf_dir, exist_ok=True)
+                print(f"\n{GREEN}Downloaded Conad PDF flyers inside '{pdf_dir}/' cleared!{RESET}")
+            else:
+                print(f"\n{YELLOW}Downloads directory '{pdf_dir}' does not exist.{RESET}")
+            time.sleep(1.5)
+            
+        elif choice == "4":
+            confirm = input(f"{RED}{BOLD}WARNING: This will wipe ALL databases, downloaded PDFs, and cropped images! Proceed? [y/N]: {RESET}").strip().lower()
+            if confirm == "y":
+                for path in ["storage/promotions.db", "storage/images", "downloads/conad"]:
+                    if os.path.exists(path):
+                        if os.path.isdir(path):
+                            shutil.rmtree(path)
+                            if "images" in path:
+                                os.makedirs("storage/images", exist_ok=True)
+                            elif "conad" in path:
+                                os.makedirs("downloads/conad", exist_ok=True)
+                        else:
+                            os.remove(path)
+                print(f"\n{GREEN}{BOLD}FULL WIPE COMPLETED SUCCESSFULY!{RESET}")
+            else:
+                print("\nWipe cancelled.")
+            time.sleep(1.5)
+            
+        elif choice == "5":
+            print(f"\n{YELLOW}Starting Sequential Benchmark (Scraping all local Conad PDFs)...{RESET}")
+            cmd = [sys.executable, "main.py", "--supermarket", "conad", "--store-id", "all"]
+            run_command(cmd, capture_time=True)
+            
+        elif choice == "6":
+            print(f"\n{YELLOW}Starting Multiprocess Parallel Benchmark (Scraping all local Conad PDFs)...{RESET}")
+            cmd = [sys.executable, "main.py", "--supermarket", "conad", "--store-id", "all", "--parallel"]
+            run_command(cmd, capture_time=True)
+            
+        elif choice == "7":
+            print(f"\n{YELLOW}Running Full Cesena Scrape Preset...{RESET}")
+            # First, Coop Scrape
+            print(f"\n{CYAN}Part 1: Scraping Coop Cesena promotions...{RESET}")
+            subprocess.run([sys.executable, "main.py", "--supermarket", "coop", "--store-id", "0315"])
+            
+            # Second, Conad Scrape in Parallel (GPS Coords for Cesena store, all flyers in parallel)
+            print(f"\n{CYAN}Part 2: Scraping Conad Cesena flyers in parallel...{RESET}")
+            cmd = [
+                sys.executable, "main.py", 
+                "--supermarket", "conad", 
+                "--store-id", "44.1396438,12.2464292", 
+                "--parallel"
+            ]
+            run_command(cmd, capture_time=True)
+            
+        elif choice == "8":
+            return
+        else:
+            print(f"\n{RED}Invalid choice! Press Enter to try again...{RESET}")
+            input()
+
 def main_menu():
     while True:
         os.system('clear' if os.name == 'posix' else 'cls')
         print_banner()
         print(f"{BOLD}Main Options Menu:{RESET}")
         print(f"  [{GREEN}1{RESET}] {BOLD}COOP{RESET}: Scrape API promotions")
-        print(f"  [{GREEN}2{RESET}] {BOLD}CONAD{RESET}: Scrape PDF flyers (REST Discovery/Download)")
+        print(f"  [{GREEN}2{RESET}] {BOLD}CONAD{RESET}: Scrape PDF flyers (REST Discovery/Download/Parallel)")
         print(f"  [{GREEN}3{RESET}] {BOLD}DASHBOARD{RESET}: Launch visual verification server SPA")
         print(f"  [{GREEN}4{RESET}] {BOLD}STATS{RESET}: Display SQLite database analytics")
-        print(f"  [{RED}5{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
+        print(f"  [{RED}5{RESET}] {BOLD}DEV TOOLS{RESET}: Developer utilities & benchmark presets")
+        print(f"  [{RED}6{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
         print()
         
-        choice = input("Select an option [1-5]: ").strip()
+        choice = input("Select an option [1-6]: ").strip()
         if choice == "1":
             scrape_coop_menu()
         elif choice == "2":
@@ -186,6 +296,8 @@ def main_menu():
         elif choice == "4":
             display_db_stats()
         elif choice == "5":
+            dev_tools_menu()
+        elif choice == "6":
             print(f"\n{CYAN}Thank you for using GDO Scraper. Goodbye!{RESET}\n")
             sys.exit(0)
         else:

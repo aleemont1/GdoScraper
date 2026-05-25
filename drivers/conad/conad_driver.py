@@ -22,12 +22,14 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         self, 
         max_flyers: Optional[int] = None, 
         radius: int = 5, 
-        choose_store: bool = False
+        choose_store: bool = False,
+        parallel: bool = False
     ) -> None:
-        super().__init__()
+        super().__init__(parallel=parallel)
         self._conad_segmenter = ConadLayoutSegmenter()
         self._conad_parser = ConadOfferParser()
         self.max_flyers = max_flyers
+        self.radius = radius
         self.radius = radius
         self.choose_store = choose_store
 

@@ -11,6 +11,15 @@ from utils.logger import setup_logger
 
 logger = setup_logger("BasePdfDriver")
 
+def _parse_single_flyer_worker(driver_class, file_path: str, store_id: str) -> List[ProductOffer]:
+    """
+    Standalone worker function executed inside an isolated CPU subprocess.
+    Instantiates its own concrete driver instance to isolate state and prevent pickling errors.
+    """
+    driver = driver_class()
+    driver._resolved_store_id = store_id
+    return driver._parse_single_flyer_file(file_path, store_id)
+
 class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     """
     Abstract strategy engine for processing geometrical PDF catalog flyers.
@@ -21,8 +30,9 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     Subclasses only need to declare the target directory, parser strategies, and layout segmenters.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, parallel: bool = False) -> None:
         self._resolved_store_id: Optional[str] = None
+        self.parallel = parallel
 
     @property
     @abstractmethod
@@ -107,6 +117,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         """
         Ingests the target PDF files and executes layout segmentation page-by-page,
         normalizing extracted text blocks into product offers with crisp visual previews.
+        Supports sequential and parallel multiprocessing modes.
         """
         if not isinstance(raw_data, list):
             logger.error("Invalid raw data structure provided. Expected a list of file paths.")
@@ -118,89 +129,123 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
 
         all_parsed_offers: List[ProductOffer] = []
         
-        for file_path in raw_data:
-            if not os.path.exists(file_path):
-                continue
-                
-            logger.info(f"Beginning spatial ETL pipeline on flyer: {os.path.basename(file_path)}")
+        if self.parallel and len(raw_data) > 1:
+            import multiprocessing
+            from concurrent.futures import ProcessPoolExecutor
             
-            try:
-                with pdfplumber.open(file_path) as pdf:
-                    total_pages = len(pdf.pages)
-                    logger.info(f"Flyer has {total_pages} pages. Analyzing layout grid...")
-                    
-                    # 1. Extract Validity String from Page 1
-                    validity_string = None
-                    if total_pages > 0:
-                        first_page = pdf.pages[0]
-                        first_page_words = first_page.extract_words()
-                        if first_page_words:
-                            sorted_words = sorted(first_page_words, key=lambda w: (round(w["top"]/5)*5, w["x0"]))
-                            first_page_text = " ".join([w["text"] for w in sorted_words])
-                            validity_string = self._parser.parse_flyer_validity(first_page_text)
-                            if validity_string:
-                                logger.info(f"Flyer validity successfully resolved: '{validity_string}'")
-                                
-                    # 2. Iterate and segment pages
-                    flyer_offers_count = 0
-                    for page_idx in range(total_pages):
-                        page = pdf.pages[page_idx]
-                        
-                        # Geometric Column-First Segmentation
-                        cells = self._segmenter.segment_page(page)
-                        if not cells:
-                            continue
-                            
-                        rendered_page_img = None
-                        
-                        # Semantic Parsing of Cell Strings
-                        for cell in cells:
-                            try:
-                                offer = self._parser.parse_cell(cell["text"], active_store_id, validity_string)
-                                if offer:
-                                    # Render the page image once per page on-demand
-                                    if rendered_page_img is None:
-                                        try:
-                                            rendered_page_img = page.to_image(resolution=120).original
-                                        except Exception as render_err:
-                                            logger.debug(f"Failed to render page image: {render_err}")
-                                            rendered_page_img = False  # Mark as failed to avoid retrying
-                                            
-                                    # Crop and save if rendering succeeded
-                                    if rendered_page_img and rendered_page_img is not False:
-                                        offer.image_url = self._crop_and_save_card_image_from_cached(
-                                            rendered_page_img, 
-                                            cell["bbox"], 
-                                            page, 
-                                            active_store_id, 
-                                            offer.offer_id,
-                                            col_idx=cell.get("col_idx"),
-                                            col_count=cell.get("col_count")
-                                        )
-                                        
-                                    all_parsed_offers.append(offer)
-                                    flyer_offers_count += 1
-                            except ValueError as parse_err:
-                                logger.debug(f"Cell parsing ValueError: {parse_err}")
-                                # If it looks like a missed product (contains Euro symbol or pricing keywords)
-                                cell_text = cell["text"]
-                                if any(kw in cell_text.lower() for kw in ["€", "pezzo", "pezzi", "anziché"]):
-                                    self._log_missed_product(
-                                        file_path=file_path,
-                                        page_idx=page_idx,
-                                        reason=str(parse_err),
-                                        text=cell_text
-                                    )
-                            except Exception as parse_err:
-                                logger.debug(f"Cell parsing unexpected exception: {parse_err}")
-                                
-                    logger.info(f"Finished parsing flyer. Extracted {flyer_offers_count} products.")
-                    
-            except Exception as e:
-                logger.error(f"Critical failure while reading PDF {os.path.basename(file_path)}: {e}")
+            max_workers = min(len(raw_data), multiprocessing.cpu_count())
+            logger.info(f"Initiating MULTIPROCESS PARALLEL parsing on {max_workers} processes (one process per flyer)...")
+            
+            driver_class = self.__class__
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = [
+                    executor.submit(_parse_single_flyer_worker, driver_class, file_path, active_store_id)
+                    for file_path in raw_data
+                ]
+                
+                for idx, future in enumerate(futures):
+                    try:
+                        offers = future.result()
+                        all_parsed_offers.extend(offers)
+                        logger.info(f"Parallel Worker #{idx+1} finished. Extracted {len(offers)} offers.")
+                    except Exception as err:
+                        logger.error(f"Parallel worker #{idx+1} failed with exception: {err}", exc_info=True)
+        else:
+            logger.info("Initiating SEQUENTIAL flyer parsing...")
+            for file_path in raw_data:
+                offers = self._parse_single_flyer_file(file_path, active_store_id)
+                all_parsed_offers.extend(offers)
                 
         logger.info(f"ETL Scrape completed. Extracted a total of {len(all_parsed_offers)} {self._supermarket_name} products.")
         return all_parsed_offers
+
+    def _parse_single_flyer_file(self, file_path: str, store_id: str) -> List[ProductOffer]:
+        """
+        Core spatial ETL logic for parsing a single flyer PDF.
+        """
+        if not os.path.exists(file_path):
+            return []
+            
+        logger.info(f"Beginning spatial ETL pipeline on flyer: {os.path.basename(file_path)}")
+        parsed_offers: List[ProductOffer] = []
+        
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                total_pages = len(pdf.pages)
+                logger.info(f"Flyer has {total_pages} pages. Analyzing layout grid...")
+                
+                # 1. Extract Validity String from Page 1
+                validity_string = None
+                if total_pages > 0:
+                    first_page = pdf.pages[0]
+                    first_page_words = first_page.extract_words()
+                    if first_page_words:
+                        sorted_words = sorted(first_page_words, key=lambda w: (round(w["top"]/5)*5, w["x0"]))
+                        first_page_text = " ".join([w["text"] for w in sorted_words])
+                        validity_string = self._parser.parse_flyer_validity(first_page_text)
+                        if validity_string:
+                            logger.info(f"Flyer validity successfully resolved: '{validity_string}'")
+                            
+                # 2. Iterate and segment pages
+                flyer_offers_count = 0
+                for page_idx in range(total_pages):
+                    page = pdf.pages[page_idx]
+                    
+                    # Geometric Column-First Segmentation
+                    cells = self._segmenter.segment_page(page)
+                    if not cells:
+                        continue
+                        
+                    rendered_page_img = None
+                    
+                    # Semantic Parsing of Cell Strings
+                    for cell in cells:
+                        try:
+                            offer = self._parser.parse_cell(cell["text"], store_id, validity_string)
+                            if offer:
+                                # Render the page image once per page on-demand
+                                if rendered_page_img is None:
+                                    try:
+                                        rendered_page_img = page.to_image(resolution=120).original
+                                    except Exception as render_err:
+                                        logger.debug(f"Failed to render page image: {render_err}")
+                                        rendered_page_img = False  # Mark as failed to avoid retrying
+                                        
+                                # Crop and save if rendering succeeded
+                                if rendered_page_img and rendered_page_img is not False:
+                                    offer.image_url = self._crop_and_save_card_image_from_cached(
+                                        rendered_page_img, 
+                                        cell["bbox"], 
+                                        page, 
+                                        store_id, 
+                                        offer.offer_id,
+                                        col_idx=cell.get("col_idx"),
+                                        col_count=cell.get("col_count")
+                                    )
+                                    
+                                parsed_offers.append(offer)
+                                flyer_offers_count += 1
+                        except ValueError as parse_err:
+                            logger.debug(f"Cell parsing ValueError: {parse_err}")
+                            # If it looks like a missed product (contains Euro symbol or pricing keywords)
+                            cell_text = cell["text"]
+                            if any(kw in cell_text.lower() for kw in ["€", "pezzo", "pezzi", "anziché"]):
+                                self._log_missed_product(
+                                    file_path=file_path,
+                                    page_idx=page_idx,
+                                    reason=str(parse_err),
+                                    text=cell_text
+                                )
+                        except Exception as parse_err:
+                            logger.debug(f"Cell parsing unexpected exception: {parse_err}")
+                            
+                logger.info(f"Finished parsing flyer {os.path.basename(file_path)}. Extracted {flyer_offers_count} products.")
+                
+        except Exception as e:
+            logger.error(f"Critical failure while reading PDF {os.path.basename(file_path)}: {e}")
+            
+        return parsed_offers
+
 
     def _crop_and_save_card_image_from_cached(
         self, 

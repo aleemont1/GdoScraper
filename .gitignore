@@ -21,3 +21,6 @@ downloads/
 .idea/
 .antigravitycli/
 init_antigravity.sh
+
+# Cartella storage locale (immagini, database, log di qualita')
+storage/

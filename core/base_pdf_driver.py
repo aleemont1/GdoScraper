@@ -1,5 +1,6 @@
 import os
 import glob
+import re
 import pdfplumber
 from datetime import datetime
 from abc import abstractmethod
@@ -19,6 +20,9 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     
     Subclasses only need to declare the target directory, parser strategies, and layout segmenters.
     """
+
+    def __init__(self) -> None:
+        self._resolved_store_id: Optional[str] = None
 
     @property
     @abstractmethod
@@ -44,10 +48,32 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         """Semantic parser instance for isolating product fields from raw text blocks"""
         pass
 
+    def download_flyers(self, store_id: str) -> List[str]:
+        """
+        Optional hook to download active flyer PDFs from a REST endpoint.
+        Returns a list of local file paths of the downloaded PDFs.
+        """
+        return []
+
     def fetch_promotions(self, store_id: str) -> Any:
         """
-        Locates target PDF catalog files in the local filesystem.
+        Locates target PDF catalog files, either dynamically downloading them via REST 
+        or scanning the local filesystem.
         """
+        # A coordinate string looks like "lat,lon" (contains decimals, digits, and commas)
+        is_coord = re.match(r"^\s*[-+]?\d+(?:\.\d+)?\s*,\s*[-+]?\d+(?:\.\d+)?\s*$", store_id)
+        # An anacanId looks like a 6-digit string or numeric store ID
+        is_numeric_store = store_id.isdigit() and len(store_id) >= 4 and not store_id.endswith(".pdf")
+
+        if (is_coord or is_numeric_store) and store_id.lower() not in ("all", "downloads"):
+            logger.info(f"Checking for dynamic flyer downloads for store reference: '{store_id}'...")
+            downloaded_paths = self.download_flyers(store_id)
+            if downloaded_paths:
+                logger.info(f"REST Downloader retrieved {len(downloaded_paths)} flyers.")
+                return downloaded_paths
+            else:
+                logger.warning(f"No dynamic flyers could be retrieved via REST. Trying filesystem scan as fallback...")
+
         pdf_paths: List[str] = []
         downloads_dir = self._download_subdir
         
@@ -86,6 +112,10 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             logger.error("Invalid raw data structure provided. Expected a list of file paths.")
             return []
             
+        # Resolve dynamic coordinate store_id to actual store ID (e.g. anacanId) if set
+        active_store_id = self._resolved_store_id or store_id
+        logger.info(f"Using store ID: '{active_store_id}' for database and image tagging.")
+
         all_parsed_offers: List[ProductOffer] = []
         
         for file_path in raw_data:
@@ -126,7 +156,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                         # Semantic Parsing of Cell Strings
                         for cell in cells:
                             try:
-                                offer = self._parser.parse_cell(cell["text"], store_id, validity_string)
+                                offer = self._parser.parse_cell(cell["text"], active_store_id, validity_string)
                                 if offer:
                                     # Render the page image once per page on-demand
                                     if rendered_page_img is None:
@@ -142,7 +172,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                             rendered_page_img, 
                                             cell["bbox"], 
                                             page, 
-                                            store_id, 
+                                            active_store_id, 
                                             offer.offer_id,
                                             col_idx=cell.get("col_idx"),
                                             col_count=cell.get("col_count")

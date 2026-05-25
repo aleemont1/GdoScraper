@@ -23,7 +23,27 @@ def main() -> None:
     parser.add_argument(
         "--store-id",
         required=True,
-        help="Specific store ID (e.g. '0315' for Coop Cesena)."
+        help=(
+            "Specific store ID (e.g. '0315' for Coop Cesena, or '005635' for Conad, "
+            "or coordinate string like '44.1396438,12.2464292' for Conad REST lookup)."
+        )
+    )
+    parser.add_argument(
+        "--radius",
+        type=int,
+        default=5,
+        help="Search radius in kilometers for coordinate-based store discovery (default: 5)."
+    )
+    parser.add_argument(
+        "--choose-store",
+        action="store_true",
+        help="Enable interactive terminal selection menu when multiple stores are found within the search radius."
+    )
+    parser.add_argument(
+        "--max-flyers",
+        type=int,
+        default=None,
+        help="Limit the maximum number of flyers downloaded and parsed in this run (default: no limit)."
     )
     parser.add_argument(
         "--db-path",
@@ -47,7 +67,11 @@ def main() -> None:
     if args.supermarket == "coop":
         driver = CoopSupermarketDriver()
     elif args.supermarket == "conad":
-        driver = ConadSupermarketDriver()
+        driver = ConadSupermarketDriver(
+            max_flyers=args.max_flyers,
+            radius=args.radius,
+            choose_store=args.choose_store
+        )
         
     if not driver:
         logger.critical("Failed to instantiate a valid scraper driver strategy.")

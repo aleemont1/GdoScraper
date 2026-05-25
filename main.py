@@ -2,7 +2,8 @@ import argparse
 import sys
 from utils.logger import setup_logger
 from storage.database import initialize_db, save_offers
-from drivers.coop_driver import CoopSupermarketDriver
+from drivers.coop.coop_driver import CoopSupermarketDriver
+from drivers.conad.conad_driver import ConadSupermarketDriver
 
 def main() -> None:
     """
@@ -42,16 +43,11 @@ def main() -> None:
         logger.critical(f"Database initialization failed: {e}")
         sys.exit(1)
         
-    # 2. Instantiate corresponding Scraper Driver Strategy
     driver = None
     if args.supermarket == "coop":
         driver = CoopSupermarketDriver()
     elif args.supermarket == "conad":
-        logger.error(
-            "Conad driver is currently under development (conad_tests.py proof-of-concept exists) "
-            "and has not yet been integrated into the central AbstractSupermarketDriver scheme."
-        )
-        sys.exit(1)
+        driver = ConadSupermarketDriver()
         
     if not driver:
         logger.critical("Failed to instantiate a valid scraper driver strategy.")

@@ -1,108 +1,117 @@
-# GDO Supermarket Scraper: Terminal Control Center & ETL Pipeline
+# GDO Supermarket Scraper: Pipeline ETL & Visual Parsing
 
-GDO Scraper è una pipeline ETL (Extract, Transform, Load) deterministica, modulare e ad alta precisione progettata per automatizzare la ricerca, il download, il parsing geometrico e il ritaglio visivo delle offerte promozionali delle catene di supermercati della Grande Distribuzione Organizzata (GDO) italiana.
+GDO Scraper è una pipeline ETL (Extract, Transform, Load) modulare e deterministica in Python per l'estrazione, la normalizzazione e la persistenza di dati promozionali (prodotti, brand, prezzi, sconti, validità) da catene della Grande Distribuzione Organizzata (GDO) italiana.
 
-Il sistema estrae dati semantici (prodotti, brand, prezzi, sconti) sia da API REST dinamiche (**Coop**) sia da volantini PDF fisici (**Conad**), salvando i record in un database SQLite centralizzato ed esportando immagini dei prodotti ritagliate al millimetro e prive di scritte.
-
----
-
-## 1. Architettura & Tecnologie Chiave
-
-- **Core Generalizzato (`AbstractPdfFlyerDriver`)**: Gestisce il caricamento pigro dei PDF, il caching locale anti-spreco di banda, il log di qualità per i prodotti saltati e la routine visiva di ritaglio.
-- **Ritaglio Visivo Ibrido Prodotto-Centrico**:
-  1. Identifica il livello raster nativo (`page.images`) all'interno di ciascuna cella geometrica.
-  2. Ritaglia l'immagine raster nativa eliminando scritte sovrapposte, tag di prezzo e sfondi spuri.
-  3. Applica un fallback deterministico a griglia snappata se non ci sono raster in zona.
-- **Clustering Spaziale a Colonne (`BasePdfLayoutSegmenter`)**: Esegue proiezioni verticali per isolare le colonne di testo escludendo intestazioni e piè di pagina, per poi accoppiare i blocchi descrizione/prezzo.
-- **Idempotenza Database (UPSERT SQL)**: La chiave primaria composta `(supermarket, store_id, offer_id)` garantisce la totale idempotenza dei dati in esecuzioni ripetute.
+Il sistema gestisce l'estrazione dati sia da API REST dinamiche (**Coop**) sia tramite visual parsing di volantini PDF geometrici (**Conad**), esportando i record in un database SQLite centralizzato e salvando i ritagli delle immagini dei prodotti ripuliti da sovrapposizioni testuali.
 
 ---
 
-## 2. Installazione & Configurazione Rapida
+## 1. Architettura e Flusso Dati
 
-Il progetto gestisce le dipendenze in modo estremamente veloce tramite **`uv`**:
+La pipeline è strutturata secondo lo **Strategy Pattern**, disaccoppiando la definizione dei driver di scraping dall'orchestratore principale:
 
-1. **Inizializza l'ambiente virtuale e installa le dipendenze**:
+```
+                  AbstractSupermarketDriver [core/base_driver.py]
+                             ▲
+                             │
+                  AbstractPdfFlyerDriver [core/base_pdf_driver.py]
+                             ▲
+                             │
+                  ConadSupermarketDriver [drivers/conad/conad_driver.py]
+```
+
+### Componenti Principali:
+- **`BasePdfLayoutSegmenter` (`core/base_pdf_segmenter.py`)**: Algoritmo di segmentazione spaziale basato sulla proiezione dell'istogramma dei caratteri sull'asse X per identificare le colonne di testo primarie. Esegue un Y-splitting all'interno di ciascuna colonna isolata con un filtro gutter verticale (minimo 4pt) ed effettua il pairing logico tra i blocchi descrittivi e i rispettivi prezzi.
+- **`AbstractPdfFlyerDriver` (`core/base_pdf_driver.py`)**: Gestisce il flusso di parsing dei PDF geometrici, il caching locale dei file scaricati per evitare richieste ridondanti e l'algoritmo di visual cropping.
+- **Ritaglio Visivo Bounding-Box (`conad_driver.py`)**: Individua gli oggetti raster nativi (`page.images`) all'interno del PDF che ricadono nella bounding box geometrica della cella del prodotto, ritagliando l'immagine raster originale per isolare l'illustrazione del prodotto ed escludere etichette e scritte. Include un fallback automatico a griglia snappata uniforme in assenza di raster.
+- **Multiprocessing a livello di Flyer**: Sfrutta un `ProcessPoolExecutor` per parallelizzare il parsing di molteplici volantini PDF su core CPU indipendenti, ottimizzando i compiti CPU-bound di text extraction e rendering grafico.
+- **UPSERT Idempotente (`storage/database.py`)**: Il database SQLite impone un vincolo di unicità composto `PRIMARY KEY (supermarket, store_id, offer_id)`, garantendo l'assoluta idempotenza dei dati inseriti.
+
+---
+
+## 2. Requisiti e Installazione
+
+Il progetto utilizza **`uv`** come package manager per garantire la riproducibilità delle dipendenze:
+
+1. **Creare l'ambiente virtuale e sincronizzare le dipendenze**:
    ```bash
    uv venv
    source .venv/bin/activate
    uv sync
    ```
-2. **Directory Struttura Creata Automaticamente**:
-   - `downloads/conad/`: memorizza i PDF dei volantini scaricati dalla rete.
+2. **Struttura delle Directory Locali**:
+   - `downloads/conad/`: cache locale per i file PDF scaricati.
    - `storage/promotions.db`: database SQLite centralizzato.
-   - `storage/images/`: raccoglie tutti i ritagli PNG perfetti dei prodotti.
-   - `storage/missed_products.log`: log per il controllo qualità.
+   - `storage/images/`: archivio dei ritagli PNG dei prodotti.
+   - `storage/missed_products.log`: log di audit per i blocchi saltati in fase di parsing semantico.
 
 ---
 
-## 3. Terminale Interattivo CLI Control Center (`run_interactive.py`)
+## 3. Script di Controllo Interattivo (`run_interactive.py`)
 
-Per evitare di digitare comandi lunghi e complessi, abbiamo creato un **Terminale Interattivo TUI** colorato con menu guidati:
+È presente un controller interattivo da terminale per facilitare i test e la configurazione rapida dei parametri:
 
-### Avvio rapido:
 ```bash
 ./run_interactive.py
 ```
-*(Se non eseguibile, lancia con: `.venv/bin/python run_interactive.py`)*
+*(In alternativa: `.venv/bin/python run_interactive.py`)*
 
-### Cosa puoi fare dall'interfaccia interattiva:
-1. **Scraper COOP**: Avvia lo scaricamento automatico tramite API inserendo solo il codice del punto vendita.
-2. **Scraper CONAD**: Scegli tra inserimento diretto dell'ID negozio (`anacanId`) o digitazione delle coordinate GPS. Consente di inserire raggio di ricerca, attivare il menu di scelta interattivo e impostare un limite al numero di volantini da scaricare.
-3. **Avvio Dashboard**: Lancia il server web locale della SPA di controllo visivo.
-4. **Database Analytics**: Mostra in tempo reale statistiche dettagliate delle tabelle (offerte totali, record per negozio, fasce di prezzo e categorie più rilevanti).
+### Funzionalità disponibili:
+1. **Scraping Coop**: Avvio assistito tramite inserimento del codice punto vendita (es. `0315`).
+2. **Scraping Conad**: Configurazione guidata dei parametri di ricerca REST (coordinate GPS, raggio di ricerca, limite volantini e attivazione del multiprocessing parallelo).
+3. **Avvio Dashboard**: Esecuzione del server web per l'interfaccia di visualizzazione SPA.
+4. **Analisi Database**: Interroga il database SQLite e stampa un report dettagliato con i conteggi, le fasce di prezzo ed i trend delle categorie estratte.
+5. **Developer Tools**: Utility per il reset dei database, la pulizia della cache delle immagini o dei PDF e l'esecuzione di benchmark comparativi (sequenziale vs parallelo).
 
 ---
 
-## 4. Riferimento Completo Comandi CLI (`main.py`)
+## 4. Riferimento CLI (`main.py`)
 
-Se preferisci lanciare la pipeline da riga di comando o integrarla in un cronjob, puoi usare direttamente `main.py` con i seguenti parametri:
+La pipeline può essere eseguita direttamente da riga di comando tramite `main.py`:
 
-### Parametri CLI:
-| Opzione | Tipo | Default | Descrizione |
+```bash
+.venv/bin/python main.py --supermarket [coop|conad] --store-id [store_id|coords] [options]
+```
+
+### Parametri Supportati:
+| Argomento | Tipo | Default | Descrizione |
 | :--- | :--- | :--- | :--- |
-| `--supermarket` | `coop` o `conad` | *(Richiesto)* | Catena di supermercati da raschiare. |
-| `--store-id` | `string` | *(Richiesto)* | ID negozio (es. `0315` Coop), `anacanId` (es. `005635` Conad) o **Coordinate GPS** `lat,lon` (es. `44.1396438,12.2464292`). |
-| `--radius` | `int` | `5` | Raggio di ricerca in chilometri per la geolocalizzazione automatica del negozio Conad. |
-| `--choose-store` | `flag` | `False` | Se abilitato con coordinate, mostra un menu di scelta console tra tutti i punti vendita trovati. |
-| `--max-flyers` | `int` | `None` | Cappa il numero massimo di volantini da scaricare e processare (es. `1` per evitare bulk massicci). |
-| `--db-path` | `string` | `storage/promotions.db` | Percorso del database SQLite di destinazione. |
+| `--supermarket` | `str` | *(Richiesto)* | Catena target da elaborare (`coop` o `conad`). |
+| `--store-id` | `str` | *(Richiesto)* | ID del punto vendita (es. `0315` Coop), `anacanId` (es. `005635` Conad) o **coordinate GPS** `lat,lon` (es. `44.1396438,12.2464292`). |
+| `--radius` | `int` | `5` | Raggio di ricerca in km per la geolocalizzazione dei punti vendita Conad. |
+| `--choose-store` | `flag` | `False` | Attiva una scelta interattiva da console se vengono rilevati più punti vendita nel raggio indicato. |
+| `--max-flyers` | `int` | `None` | Limita il numero massimo di volantini Conad da scaricare ed elaborare. |
+| `--parallel` | `flag` | `False` | Abilita il parsing parallelo multi-processo a livello di volantino PDF. |
+| `--db-path` | `str` | `storage/promotions.db` | Percorso assoluto o relativo del database SQLite. |
 
 ---
 
-### Esempi Pratici di Esecuzione CLI:
+### Esempi di Utilizzo CLI:
 
-#### A. Scrape di Coop Cesena (API REST pura)
+#### 1. Scraping API Coop Cesena
 ```bash
 .venv/bin/python main.py --supermarket coop --store-id "0315"
 ```
 
-#### B. Scrape di Conad Cesena via Coordinate (Auto-Download del volantino più vicino, max 1 volantino)
+#### 2. Scraping Conad Cesena via GPS (Auto-Download e Multiprocessing abilitato)
 ```bash
-.venv/bin/python main.py --supermarket conad --store-id "44.1396438,12.2464292" --max-flyers 1
+.venv/bin/python main.py --supermarket conad --store-id "44.1396438,12.2464292" --parallel
 ```
-* **Risultato**: Individua il Conad City di Viale Gaspare Finali 28 (`005635`), scarica l'ultimo volantino attivo, estrae le offerte e le associa al negozio `005635` nel database.
+* **Comportamento**: Risolve le coordinate sul punto vendita `005635`, scarica i volantini attivi ignorando manuali e guide promozionali escluse, avvia il parsing in multiprocessing parallelo, esegue il visual crop ed effettua l'upsert delle offerte.
 
-#### C. Scrape di Conad Interattivo (Raggio di ricerca 15km con scelta del negozio da menu)
+#### 3. Scraping Conad con Scelta Interattiva del Punto Vendita (Raggio 10km)
 ```bash
-.venv/bin/python main.py --supermarket conad --store-id "44.1396438,12.2464292" --radius 15 --choose-store
-```
-* **Risultato**: Visualizza una lista numerata dei punti vendita entro 15km, attende la tua digitazione da terminale, scarica i volantini associati a quel punto vendita e procede con l'ETL.
-
-#### D. Scrape di Conad tramite ID Punto Vendita Diretto
-```bash
-.venv/bin/python main.py --supermarket conad --store-id "005635" --max-flyers 1
+.venv/bin/python main.py --supermarket conad --store-id "44.1396438,12.2464292" --radius 10 --choose-store
 ```
 
 ---
 
-## 5. Visualizzazione & Controllo Qualità SPA (`dashboard.py`)
+## 5. Visual Verification Dashboard (`dashboard.py`)
 
-Dopo aver popolato il database, puoi analizzare visivamente i ritagli ed i dati estratti tramite la SPA integrata:
+Per effettuare l'audit visivo e verificare l'accuratezza dell'estrazione geometrica e dei crop delle immagini:
 
 ```bash
 .venv/bin/python dashboard.py
 ```
-- Server locale avviato all'indirizzo: **[http://localhost:8000](http://localhost:8000)**.
-- **Caratteristiche Premium**: Glassmorphism, caricamento lazy, zoom dinamico al passaggio del mouse sopra i ritagli dei prodotti per ispezionarne l'accuratezza al 100%, filtri istantanei per insegna e negozio.
-- **Log di Controllo Qualità (`storage/missed_products.log`)**: Se un blocco contiene parole chiave di prezzo ma non viene convalidato, viene salvato qui con le coordinate della pagina per consentire un audit rapido del parser semantico.
+- **Porta di ascolto locale**: [http://localhost:8000](http://localhost:8000).
+- Offre filtri per catena, punto vendita, ricerca testuale dei prodotti ed un'ispezione ad alta definizione tramite zoom al passaggio del mouse sopra i crop PNG salvati in `storage/images/`.

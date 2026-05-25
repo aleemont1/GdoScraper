@@ -4,6 +4,8 @@ from utils.logger import setup_logger
 from storage.database import initialize_db, save_offers
 from drivers.coop.coop_driver import CoopSupermarketDriver
 from drivers.conad.conad_driver import ConadSupermarketDriver
+from drivers.ins.ins_driver import INSSupermarketDriver
+from drivers.dpiu.dpiu_driver import DpiuSupermarketDriver
 
 def main() -> None:
     """
@@ -16,9 +18,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--supermarket",
-        choices=["coop", "conad"],
+        choices=["coop", "conad", "ins", "dpiu"],
         required=True,
-        help="Supermarket chain to scrape (coop or conad)."
+        help="Supermarket chain to scrape (coop, conad, ins, or dpiu)."
+    )
+    parser.add_argument(
+        "--use-gemini",
+        action="store_true",
+        help="Use Gemini 2.5 Flash API for OCR-based flyer scraping instead of local offline Tesseract."
     )
     parser.add_argument(
         "--store-id",
@@ -77,6 +84,16 @@ def main() -> None:
             radius=args.radius,
             choose_store=args.choose_store,
             parallel=args.parallel
+        )
+    elif args.supermarket == "ins":
+        driver = INSSupermarketDriver(
+            max_flyers=args.max_flyers,
+            parallel=args.parallel,
+            use_gemini=args.use_gemini
+        )
+    elif args.supermarket == "dpiu":
+        driver = DpiuSupermarketDriver(
+            max_flyers=args.max_flyers
         )
         
     if not driver:

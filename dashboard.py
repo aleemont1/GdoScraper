@@ -149,6 +149,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         .kpi-coop .kpi-value { color: var(--accent-green); }
         .kpi-conad .kpi-value { color: var(--accent-orange); }
         .kpi-ins .kpi-value { color: var(--accent-purple); }
+        .kpi-dpiu .kpi-value { color: var(--accent-red); }
         .kpi-avg .kpi-value { color: var(--accent-blue); }
 
         /* Control Panel / Filters Card */
@@ -160,7 +161,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             margin-bottom: 30px;
             backdrop-filter: var(--glass-blur);
             position: relative;
-            z-index: 10;
+            z-index: 20;
         }
 
 
@@ -278,6 +279,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             backdrop-filter: var(--glass-blur);
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
             margin-bottom: 30px;
+            position: relative;
+            z-index: 10;
         }
 
         .table-responsive {
@@ -359,6 +362,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             background-color: rgba(139, 92, 246, 0.12);
             color: var(--accent-purple);
             border: 1px solid rgba(139, 92, 246, 0.2);
+        }
+
+        .badge-dpiu {
+            background-color: rgba(239, 68, 68, 0.12);
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.2);
         }
 
         .badge-promo {
@@ -547,6 +556,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             <span class="kpi-value" id="kpiIns">0</span>
             <span class="kpi-footer">From Crawler & Dual-Engine OCR</span>
         </div>
+        <div class="kpi-card kpi-dpiu">
+            <span class="kpi-label">Dpiù Offers</span>
+            <span class="kpi-value" id="kpiDpiu">0</span>
+            <span class="kpi-footer">From REST API integrations</span>
+        </div>
         <div class="kpi-card kpi-avg">
             <span class="kpi-label">Avg Promo Price</span>
             <span class="kpi-value" id="kpiAvg">€ 0.00</span>
@@ -569,6 +583,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     <option value="COOP">Coop</option>
                     <option value="CONAD">Conad</option>
                     <option value="INS">IN's Mercato</option>
+                    <option value="DPIU">Dpiù Discount</option>
                 </select>
             </div>
 
@@ -707,6 +722,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             const coopCount = allOffers.filter(o => o.supermarket === 'COOP').length;
             const conadCount = allOffers.filter(o => o.supermarket === 'CONAD').length;
             const insCount = allOffers.filter(o => o.supermarket === 'INS').length;
+            const dpiuCount = allOffers.filter(o => o.supermarket === 'DPIU').length;
             
             // Calculate average price of promos
             let avgPrice = 0;
@@ -719,6 +735,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             document.getElementById('kpiCoop').textContent = coopCount;
             document.getElementById('kpiConad').textContent = conadCount;
             document.getElementById('kpiIns').textContent = insCount;
+            document.getElementById('kpiDpiu').textContent = dpiuCount;
             document.getElementById('kpiAvg').textContent = `€ ${avgPrice.toFixed(2)}`;
         }
 
@@ -807,7 +824,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                     ? `<span class="badge badge-coop">Coop</span>` 
                     : offer.supermarket === 'CONAD'
                     ? `<span class="badge badge-conad">Conad</span>`
-                    : `<span class="badge badge-ins">IN's</span>`;
+                    : offer.supermarket === 'INS'
+                    ? `<span class="badge badge-ins">IN's</span>`
+                    : `<span class="badge badge-dpiu">Dpiù</span>`;
                     
                 // Visual Preview Card Crop
                 let previewHtml = `<span style="color: var(--text-secondary); font-size: 0.8rem;">-</span>`;

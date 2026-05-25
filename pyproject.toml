@@ -11,4 +11,6 @@ dependencies = [
     "pydantic>=2.13.4",
     "pypdf>=6.12.1",
     "requests>=2.34.2",
+    "pytesseract>=0.3.10",
 ]
+

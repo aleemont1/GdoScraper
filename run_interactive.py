@@ -106,6 +106,82 @@ def scrape_conad_menu():
         
     run_command(cmd, capture_time=True)
 
+def scrape_ins_menu():
+    print(f"\n{GREEN}{BOLD}=== IN'S MERCATO SCRAPER SETTINGS ==={RESET}")
+    print("Select Store Location Targeting Mode:")
+    print(f"  {CYAN}1{RESET}) Use GPS Coordinates (Dynamic Discovery & Download)")
+    print(f"  {CYAN}2{RESET}) Use Direct Store/Region Code (e.g. E-Campagna-OF)")
+    
+    mode = input("Select mode [1-2, default: 1]: ").strip()
+    if mode == "2":
+        store_id = input(f"Enter IN's Store Code [default: {CYAN}E-Campagna-OF{RESET}]: ").strip()
+        if not store_id:
+            store_id = "E-Campagna-OF"
+    else:
+        store_id = input(f"Enter GPS Coordinates [default: {CYAN}44.1396438,12.2464292{RESET} (Cesena)]: ").strip()
+        if not store_id:
+            store_id = "44.1396438,12.2464292"
+
+    cmd = [
+        sys.executable, "main.py",
+        "--supermarket", "ins",
+        "--store-id", store_id
+    ]
+
+    # Choice to use Gemini API or Local Tesseract OCR
+    use_gemini = input(f"Use Gemini API Free Tier for visual OCR? [y/N, default: N]: ").strip().lower()
+    if use_gemini == "y":
+        cmd.append("--use-gemini")
+
+    # Multiprocessing parallel parsing choice
+    parallel = input(f"Enable multi-process parallel flyer parsing? [y/N]: ").strip().lower()
+    if parallel == "y":
+        cmd.append("--parallel")
+
+    # Optional limits
+    max_flyers = input(f"Limit max flyer downloads? [Enter for no limit, or integer]: ").strip()
+    if max_flyers.isdigit():
+        cmd.extend(["--max-flyers", max_flyers])
+        
+    db_path = input(f"Enter SQLite DB path [default: {CYAN}storage/promotions.db{RESET}]: ").strip()
+    if db_path:
+        cmd.extend(["--db-path", db_path])
+        
+    run_command(cmd, capture_time=True)
+
+def scrape_dpiu_menu():
+    print(f"\n{GREEN}{BOLD}=== DPIÙ SCRAPER SETTINGS ==={RESET}")
+    print("Select Store Location Targeting Mode:")
+    print(f"  {CYAN}1{RESET}) Use GPS Coordinates (Haversine Distance Matching)")
+    print(f"  {CYAN}2{RESET}) Use Direct Store Alias (e.g. d-cesena)")
+    
+    mode = input("Select mode [1-2, default: 1]: ").strip()
+    if mode == "2":
+        store_id = input(f"Enter Dpiù Store Alias [default: {CYAN}d-cesena{RESET}]: ").strip()
+        if not store_id:
+            store_id = "d-cesena"
+    else:
+        store_id = input(f"Enter GPS Coordinates [default: {CYAN}44.1396438,12.2464292{RESET} (Cesena)]: ").strip()
+        if not store_id:
+            store_id = "44.1396438,12.2464292"
+
+    cmd = [
+        sys.executable, "main.py",
+        "--supermarket", "dpiu",
+        "--store-id", store_id
+    ]
+
+    # Optional limits
+    max_flyers = input(f"Limit max flyer downloads? [Enter for no limit, or integer]: ").strip()
+    if max_flyers.isdigit():
+        cmd.extend(["--max-flyers", max_flyers])
+        
+    db_path = input(f"Enter SQLite DB path [default: {CYAN}storage/promotions.db{RESET}]: ").strip()
+    if db_path:
+        cmd.extend(["--db-path", db_path])
+        
+    run_command(cmd, capture_time=True)
+
 def launch_dashboard():
     print(f"\n{GREEN}{BOLD}=== LAUNCHING VISUAL SPA DASHBOARD ==={RESET}")
     print(f"{CYAN}Initializing dashboard server at http://localhost:8000 ...{RESET}")
@@ -182,12 +258,12 @@ def dev_tools_menu():
         print("Select a developer option:")
         print(f"  [{CYAN}1{RESET}] Clear SQLite Database (reset promotions.db)")
         print(f"  [{CYAN}2{RESET}] Clear Cropped Images (delete all cached product PNGs)")
-        print(f"  [{CYAN}3{RESET}] Clear Downloaded Conad PDF Flyer Cache")
+        print(f"  [{CYAN}3{RESET}] Clear Downloaded Conad & IN's PDF Flyer Cache")
         print(f"  [{RED}4{RESET}] {BOLD}FULL STORAGE WIPE{RESET} (Reset DB, Images, and PDFs)")
         print("-"*65)
         print(f"  [{GREEN}5{RESET}] {BOLD}Benchmark{RESET}: Run Conad Scrape (All Flyers) - {BOLD}Sequential Mode{RESET}")
         print(f"  [{GREEN}6{RESET}] {BOLD}Benchmark{RESET}: Run Conad Scrape (All Flyers) - {BOLD}Parallel Mode{RESET}")
-        print(f"  [{GREEN}7{RESET}] {BOLD}Preset{RESET}: Run Full Cesena Scrape (Coop + Conad in Parallel)")
+        print(f"  [{GREEN}7{RESET}] {BOLD}Preset{RESET}: Run Full Cesena Scrape (Coop + Conad + IN's + Dpiù)")
         print("-"*65)
         print(f"  [{YELLOW}8{RESET}] Return to Main Menu")
         print()
@@ -214,19 +290,17 @@ def dev_tools_menu():
             time.sleep(1.5)
             
         elif choice == "3":
-            pdf_dir = "downloads/conad"
-            if os.path.exists(pdf_dir):
-                shutil.rmtree(pdf_dir)
-                os.makedirs(pdf_dir, exist_ok=True)
-                print(f"\n{GREEN}Downloaded Conad PDF flyers inside '{pdf_dir}/' cleared!{RESET}")
-            else:
-                print(f"\n{YELLOW}Downloads directory '{pdf_dir}' does not exist.{RESET}")
+            for pdf_dir in ["downloads/conad", "downloads/ins"]:
+                if os.path.exists(pdf_dir):
+                    shutil.rmtree(pdf_dir)
+                    os.makedirs(pdf_dir, exist_ok=True)
+            print(f"\n{GREEN}Downloaded Conad and IN's PDF flyers cleared!{RESET}")
             time.sleep(1.5)
             
         elif choice == "4":
             confirm = input(f"{RED}{BOLD}WARNING: This will wipe ALL databases, downloaded PDFs, and cropped images! Proceed? [y/N]: {RESET}").strip().lower()
             if confirm == "y":
-                for path in ["storage/promotions.db", "storage/images", "downloads/conad"]:
+                for path in ["storage/promotions.db", "storage/images", "downloads/conad", "downloads/ins"]:
                     if os.path.exists(path):
                         if os.path.isdir(path):
                             shutil.rmtree(path)
@@ -234,9 +308,11 @@ def dev_tools_menu():
                                 os.makedirs("storage/images", exist_ok=True)
                             elif "conad" in path:
                                 os.makedirs("downloads/conad", exist_ok=True)
+                            elif "ins" in path:
+                                os.makedirs("downloads/ins", exist_ok=True)
                         else:
                             os.remove(path)
-                print(f"\n{GREEN}{BOLD}FULL WIPE COMPLETED SUCCESSFULY!{RESET}")
+                print(f"\n{GREEN}{BOLD}FULL WIPE COMPLETED SUCCESSFULLY!{RESET}")
             else:
                 print("\nWipe cancelled.")
             time.sleep(1.5)
@@ -257,13 +333,20 @@ def dev_tools_menu():
             print(f"\n{CYAN}Part 1: Scraping Coop Cesena promotions...{RESET}")
             subprocess.run([sys.executable, "main.py", "--supermarket", "coop", "--store-id", "0315"])
             
-            # Second, Conad Scrape in Parallel (GPS Coords for Cesena store, all flyers in parallel)
+            # Second, Conad Scrape in Parallel
             print(f"\n{CYAN}Part 2: Scraping Conad Cesena flyers in parallel...{RESET}")
+            subprocess.run([sys.executable, "main.py", "--supermarket", "conad", "--store-id", "44.1396438,12.2464292", "--parallel"])
+            
+            # Third, IN's Scrape
+            print(f"\n{CYAN}Part 3: Scraping IN's Cesena flyers offline...{RESET}")
+            subprocess.run([sys.executable, "main.py", "--supermarket", "ins", "--store-id", "44.1396438,12.2464292"])
+            
+            # Fourth, Dpiù Scrape
+            print(f"\n{CYAN}Part 4: Scraping Dpiù Cesena promotions...{RESET}")
             cmd = [
-                sys.executable, "main.py", 
-                "--supermarket", "conad", 
-                "--store-id", "44.1396438,12.2464292", 
-                "--parallel"
+                sys.executable, "main.py",
+                "--supermarket", "dpiu",
+                "--store-id", "44.1396438,12.2464292"
             ]
             run_command(cmd, capture_time=True)
             
@@ -280,24 +363,30 @@ def main_menu():
         print(f"{BOLD}Main Options Menu:{RESET}")
         print(f"  [{GREEN}1{RESET}] {BOLD}COOP{RESET}: Scrape API promotions")
         print(f"  [{GREEN}2{RESET}] {BOLD}CONAD{RESET}: Scrape PDF flyers (REST Discovery/Download/Parallel)")
-        print(f"  [{GREEN}3{RESET}] {BOLD}DASHBOARD{RESET}: Launch visual verification server SPA")
-        print(f"  [{GREEN}4{RESET}] {BOLD}STATS{RESET}: Display SQLite database analytics")
-        print(f"  [{RED}5{RESET}] {BOLD}DEV TOOLS{RESET}: Developer utilities & benchmark presets")
-        print(f"  [{RED}6{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
+        print(f"  [{GREEN}3{RESET}] {BOLD}IN'S{RESET}: Scrape PDF flyers (BeautifulSoup Crawler/Dual-Engine OCR)")
+        print(f"  [{GREEN}4{RESET}] {BOLD}DPIÙ{RESET}: Scrape API promotions (REST Dynamic OAuth2)")
+        print(f"  [{GREEN}5{RESET}] {BOLD}DASHBOARD{RESET}: Launch visual verification server SPA")
+        print(f"  [{GREEN}6{RESET}] {BOLD}STATS{RESET}: Display SQLite database analytics")
+        print(f"  [{RED}7{RESET}] {BOLD}DEV TOOLS{RESET}: Developer utilities & benchmark presets")
+        print(f"  [{RED}8{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
         print()
         
-        choice = input("Select an option [1-6]: ").strip()
+        choice = input("Select an option [1-8]: ").strip()
         if choice == "1":
             scrape_coop_menu()
         elif choice == "2":
             scrape_conad_menu()
         elif choice == "3":
-            launch_dashboard()
+            scrape_ins_menu()
         elif choice == "4":
-            display_db_stats()
+            scrape_dpiu_menu()
         elif choice == "5":
-            dev_tools_menu()
+            launch_dashboard()
         elif choice == "6":
+            display_db_stats()
+        elif choice == "7":
+            dev_tools_menu()
+        elif choice == "8":
             print(f"\n{CYAN}Thank you for using GDO Scraper. Goodbye!{RESET}\n")
             sys.exit(0)
         else:

@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from typing import Dict, Any, List
+from email.parser import BytesParser
 
 PORT = 8000
 DB_PATH = "storage/promotions.db"
@@ -534,6 +535,48 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
     </header>
 
+    <!-- Manual PDF Circular Upload Panel -->
+    <section class="control-panel" style="margin-bottom: 25px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;" onclick="toggleUploadPanel()">
+            <h2 style="font-size: 1.2rem; font-weight: 700; background: linear-gradient(135deg, #fff 60%, var(--text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: flex; align-items: center; gap: 8px;">📤 Manual Flyer PDF Visual Scraper</h2>
+            <span id="uploadToggleIcon" style="font-size: 0.9rem; color: var(--text-secondary); transition: var(--transition-smooth);">[ Expand Upload Form ▼ ]</span>
+        </div>
+        
+        <div id="uploadPanelContent" style="display: none; margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px; animation: fadeIn 0.2s ease-out;">
+            <form id="uploadForm" onsubmit="handleManualUpload(event)" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; align-items: end;">
+                <div class="input-group">
+                    <label for="pdfFile">Select Flyer PDF</label>
+                    <input type="file" id="pdfFile" accept=".pdf" required style="padding: 7px 10px; cursor: pointer;">
+                </div>
+                <div class="input-group">
+                    <label for="uploadSupermarket">Supermarket Name</label>
+                    <input type="text" id="uploadSupermarket" placeholder="e.g. LIDL, ESSALUNGA" required>
+                </div>
+                <div class="input-group">
+                    <label for="uploadStoreId">Store ID / City</label>
+                    <input type="text" id="uploadStoreId" placeholder="e.g. d-cesena" required>
+                </div>
+                <div class="input-group">
+                    <label for="uploadEngine">Parsing Engine</label>
+                    <select id="uploadEngine">
+                        <option value="false">Auto-Detect (Offline OCR / Vector)</option>
+                        <option value="true">Gemini 2.5 Flash API (Structured Visual)</option>
+                    </select>
+                </div>
+                <div>
+                    <button class="btn" type="submit" style="width: 100%; height: 42px; display: flex; justify-content: center; align-items: center; gap: 8px;">
+                        <span>🚀 Parse & Scrape Flyer</span>
+                    </button>
+                </div>
+            </form>
+            
+            <!-- Loading and Status Message -->
+            <div id="uploadStatus" style="display: none; margin-top: 15px; padding: 12px; border-radius: 8px; font-weight: 500; text-align: center; line-height: 1.5;">
+                <!-- Filled dynamically -->
+            </div>
+        </div>
+    </section>
+
     <!-- KPI / Stats Row -->
     <section class="stats-grid">
         <div class="kpi-card kpi-total">
@@ -920,6 +963,81 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             renderTable();
         }
 
+        function toggleUploadPanel() {
+            const content = document.getElementById('uploadPanelContent');
+            const icon = document.getElementById('uploadToggleIcon');
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                icon.textContent = '[ Collapse Form ▲ ]';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '[ Expand Upload Form ▼ ]';
+            }
+        }
+
+        async function handleManualUpload(event) {
+            event.preventDefault();
+            
+            const fileInput = document.getElementById('pdfFile');
+            const supermarketInput = document.getElementById('uploadSupermarket');
+            const storeIdInput = document.getElementById('uploadStoreId');
+            const engineInput = document.getElementById('uploadEngine');
+            const statusDiv = document.getElementById('uploadStatus');
+            
+            if (fileInput.files.length === 0) {
+                alert("Please select a valid PDF file.");
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("supermarket", supermarketInput.value);
+            formData.append("store_id", storeIdInput.value);
+            formData.append("use_gemini", engineInput.value);
+            
+            statusDiv.style.display = 'block';
+            statusDiv.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
+            statusDiv.style.color = '#60a5fa';
+            statusDiv.style.border = '1px solid rgba(59, 130, 246, 0.3)';
+            statusDiv.innerHTML = `⌛ <strong>Scraping in progress...</strong> Analyzing PDF pages, extracting vector text, running OCR fallbacks, cropping images, and saving offers. Please wait (this can take a few seconds)...`;
+            
+            const elements = event.target.elements;
+            for (let i = 0; i < elements.length; i++) {
+                elements[i].disabled = true;
+            }
+            
+            try {
+                const res = await fetch("/api/upload", {
+                    method: "POST",
+                    body: formData
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    statusDiv.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+                    statusDiv.style.color = '#34d399';
+                    statusDiv.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                    statusDiv.innerHTML = `✅ <strong>Success!</strong> ${data.message}<br>Extracted <strong>${data.offers_count}</strong> promotional offers and upserted them successfully to the database.`;
+                    
+                    event.target.reset();
+                    fetchData();
+                } else {
+                    throw new Error(data.error || "Unknown parser error.");
+                }
+            } catch (err) {
+                statusDiv.style.backgroundColor = 'rgba(239, 68, 68, 0.15)';
+                statusDiv.style.color = '#f87171';
+                statusDiv.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+                statusDiv.innerHTML = `❌ <strong>Parsing Failed:</strong> ${err.message}`;
+            } finally {
+                for (let i = 0; i < elements.length; i++) {
+                    elements[i].disabled = false;
+                }
+            }
+        }
+
         // Initialize App on load
         window.addEventListener('DOMContentLoaded', () => {
             fetchData();
@@ -1016,6 +1134,129 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-type", "text/plain")
             self.end_headers()
             self.wfile.write(b"404 Not Found")
+
+    def do_POST(self) -> None:
+        # Route: Manual PDF circular flyer upload & parse endpoint
+        if self.path == "/api/upload":
+            content_type = self.headers.get("Content-Type")
+            if not content_type or "multipart/form-data" not in content_type:
+                self.send_response(400)
+                self.send_header("Content-type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Content-Type must be multipart/form-data"}).encode("utf-8"))
+                return
+                
+            try:
+                # Read content length
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                
+                # Parse body using email BytesParser
+                msg = BytesParser().parsebytes(b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + body)
+                
+                supermarket = "MANUAL"
+                store_id = "MANUAL_STORE"
+                use_gemini = False
+                pdf_content = None
+                pdf_filename = "manual_flyer.pdf"
+                
+                if msg.is_multipart():
+                    for part in msg.get_payload():
+                        name = part.get_param("name", header="content-disposition")
+                        if name == "supermarket":
+                            supermarket = part.get_payload(decode=True).decode().strip()
+                        elif name == "store_id":
+                            store_id = part.get_payload(decode=True).decode().strip()
+                        elif name == "use_gemini":
+                            use_gemini = part.get_payload(decode=True).decode().strip().lower() == "true"
+                        elif name == "file":
+                            pdf_filename = part.get_filename() or "manual_flyer.pdf"
+                            pdf_content = part.get_payload(decode=True)
+                            
+                if not pdf_content:
+                    self.send_response(400)
+                    self.send_header("Content-type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "No PDF file upload content discovered in payload"}).encode("utf-8"))
+                    return
+                    
+                # Save the manual PDF file
+                os.makedirs("downloads/uploaded", exist_ok=True)
+                clean_filename = "".join(c for c in pdf_filename if c.isalnum() or c in (".", "_", "-")).strip()
+                if not clean_filename:
+                    clean_filename = "manual_flyer.pdf"
+                if not clean_filename.endswith(".pdf"):
+                    clean_filename += ".pdf"
+                    
+                file_path = os.path.join("downloads/uploaded", clean_filename)
+                with open(file_path, "wb") as f:
+                    f.write(pdf_content)
+                    
+                print(f"[UploadAPI] Saved uploaded flyer: {clean_filename} | Target Supermarket: {supermarket} | Store: {store_id} | Gemini: {use_gemini}")
+                
+                # Check for a .env file and load environment variables manually
+                if os.path.exists(".env"):
+                    try:
+                        with open(".env") as f:
+                            for line in f:
+                                stripped = line.strip()
+                                if stripped and not stripped.startswith("#") and "=" in stripped:
+                                    k, v = stripped.split("=", 1)
+                                    os.environ[k.strip()] = v.strip().strip("'\"")
+                    except Exception:
+                        pass
+
+                # Instantiate Manual Scraper Driver
+                from drivers.manual.manual_driver import ManualSupermarketDriver
+                from storage.database import save_offers
+                
+                driver = ManualSupermarketDriver(
+                    supermarket_name=supermarket,
+                    use_gemini=use_gemini
+                )
+                
+                # Run ETL pipeline directly on the uploaded PDF file
+                offers = driver.run_etl(file_path)
+                
+                if offers:
+                    saved_count = save_offers(DB_PATH, offers)
+                    self.send_response(200)
+                    self.send_header("Content-type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    
+                    response = {
+                        "success": True,
+                        "message": f"Successfully parsed manual PDF '{pdf_filename}'!",
+                        "supermarket": supermarket,
+                        "store_id": store_id,
+                        "offers_count": len(offers),
+                        "saved_count": saved_count
+                    }
+                    self.wfile.write(json.dumps(response).encode("utf-8"))
+                else:
+                    self.send_response(400)
+                    self.send_header("Content-type", "application/json")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({
+                        "success": False,
+                        "error": "No promotional offers could be parsed from the PDF circular. Make sure the file format matches standard layouts."
+                    }).encode("utf-8"))
+                    
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": False,
+                    "error": f"Scraper visual execution failed: {e}"
+                }).encode("utf-8"))
 
 def run_server() -> None:
     """Runs the visual verifier server."""

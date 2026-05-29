@@ -7,6 +7,7 @@ from drivers.coop.coop_driver import CoopSupermarketDriver
 from drivers.conad.conad_driver import ConadSupermarketDriver
 from drivers.ins.ins_driver import INSSupermarketDriver
 from drivers.dpiu.dpiu_driver import DpiuSupermarketDriver
+from drivers.manual.manual_driver import ManualSupermarketDriver
 
 # Zero-dependency local .env loader to support sandbox and CLI key sharing
 if os.path.exists(".env"):
@@ -32,9 +33,14 @@ def main() -> None:
     )
     parser.add_argument(
         "--supermarket",
-        choices=["coop", "conad", "ins", "dpiu"],
+        choices=["coop", "conad", "ins", "dpiu", "manual"],
         required=True,
-        help="Supermarket chain to scrape (coop, conad, ins, or dpiu)."
+        help="Supermarket chain to scrape (coop, conad, ins, dpiu, or manual)."
+    )
+    parser.add_argument(
+        "--custom-supermarket",
+        default="MANUAL",
+        help="Custom supermarket name to use in 'manual' mode (default: MANUAL)."
     )
     parser.add_argument(
         "--use-gemini",
@@ -108,6 +114,12 @@ def main() -> None:
     elif args.supermarket == "dpiu":
         driver = DpiuSupermarketDriver(
             max_flyers=args.max_flyers
+        )
+    elif args.supermarket == "manual":
+        driver = ManualSupermarketDriver(
+            supermarket_name=args.custom_supermarket,
+            use_gemini=args.use_gemini,
+            parallel=args.parallel
         )
         
     if not driver:

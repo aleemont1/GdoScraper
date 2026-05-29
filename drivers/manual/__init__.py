@@ -1,0 +1,1 @@
+from drivers.manual.manual_driver import ManualSupermarketDriver

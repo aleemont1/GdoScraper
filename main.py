@@ -1,11 +1,25 @@
 import argparse
 import sys
+import os
 from utils.logger import setup_logger
 from storage.database import initialize_db, save_offers
 from drivers.coop.coop_driver import CoopSupermarketDriver
 from drivers.conad.conad_driver import ConadSupermarketDriver
 from drivers.ins.ins_driver import INSSupermarketDriver
 from drivers.dpiu.dpiu_driver import DpiuSupermarketDriver
+
+# Zero-dependency local .env loader to support sandbox and CLI key sharing
+if os.path.exists(".env"):
+    try:
+        with open(".env") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k, v = stripped.split("=", 1)
+                    os.environ[k.strip()] = v.strip().strip("'\"")
+    except Exception:
+        pass
+
 
 def main() -> None:
     """

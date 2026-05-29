@@ -7,6 +7,19 @@ import time
 import glob
 import shutil
 
+def get_python_executable():
+    """
+    Locates the active local virtual environment python interpreter (.venv/bin/python)
+    to ensure absolute consistency of dependencies, falling back to sys.executable.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_python = os.path.join(script_dir, ".venv", "bin", "python")
+    if os.path.exists(venv_python) and os.path.isfile(venv_python):
+        return venv_python
+    return sys.executable
+
+PYTHON_EXE = get_python_executable()
+
 # ANSI Color Codes for premium visual TUI
 BLUE = "\033[94m"
 GREEN = "\033[92m"
@@ -54,7 +67,7 @@ def scrape_coop_menu():
     if not db_path:
         db_path = "storage/promotions.db"
         
-    cmd = [sys.executable, "main.py", "--supermarket", "coop", "--store-id", store_id, "--db-path", db_path]
+    cmd = [PYTHON_EXE, "main.py", "--supermarket", "coop", "--store-id", store_id, "--db-path", db_path]
     run_command(cmd)
 
 def scrape_conad_menu():
@@ -69,7 +82,7 @@ def scrape_conad_menu():
         if not store_id:
             print(f"{RED}Invalid Store ID. Returning to menu.{RESET}")
             return
-        cmd = [sys.executable, "main.py", "--supermarket", "conad", "--store-id", store_id]
+        cmd = [PYTHON_EXE, "main.py", "--supermarket", "conad", "--store-id", store_id]
     else:
         coords = input(f"Enter Coordinates [default: {CYAN}44.1396438,12.2464292{RESET} (Cesena)]: ").strip()
         if not coords:
@@ -82,7 +95,7 @@ def scrape_conad_menu():
         choose_store = input(f"Enable Interactive Store List Selector? [y/N]: ").strip().lower()
         
         cmd = [
-            sys.executable, "main.py", 
+            PYTHON_EXE, "main.py", 
             "--supermarket", "conad", 
             "--store-id", coords,
             "--radius", radius
@@ -123,7 +136,7 @@ def scrape_ins_menu():
             store_id = "44.1396438,12.2464292"
 
     cmd = [
-        sys.executable, "main.py",
+        PYTHON_EXE, "main.py",
         "--supermarket", "ins",
         "--store-id", store_id
     ]
@@ -166,7 +179,7 @@ def scrape_dpiu_menu():
             store_id = "44.1396438,12.2464292"
 
     cmd = [
-        sys.executable, "main.py",
+        PYTHON_EXE, "main.py",
         "--supermarket", "dpiu",
         "--store-id", store_id
     ]
@@ -187,7 +200,7 @@ def launch_dashboard():
     print(f"{CYAN}Initializing dashboard server at http://localhost:8000 ...{RESET}")
     print(f"{YELLOW}Press Ctrl+C to terminate the dashboard server.{RESET}\n")
     try:
-        subprocess.run([sys.executable, "dashboard.py"])
+        subprocess.run([PYTHON_EXE, "dashboard.py"])
     except KeyboardInterrupt:
         print(f"\n{RED}Dashboard server terminated.{RESET}")
     input(f"\nPress Enter to return to main menu...")
@@ -319,32 +332,32 @@ def dev_tools_menu():
             
         elif choice == "5":
             print(f"\n{YELLOW}Starting Sequential Benchmark (Scraping all local Conad PDFs)...{RESET}")
-            cmd = [sys.executable, "main.py", "--supermarket", "conad", "--store-id", "all"]
+            cmd = [PYTHON_EXE, "main.py", "--supermarket", "conad", "--store-id", "all"]
             run_command(cmd, capture_time=True)
             
         elif choice == "6":
             print(f"\n{YELLOW}Starting Multiprocess Parallel Benchmark (Scraping all local Conad PDFs)...{RESET}")
-            cmd = [sys.executable, "main.py", "--supermarket", "conad", "--store-id", "all", "--parallel"]
+            cmd = [PYTHON_EXE, "main.py", "--supermarket", "conad", "--store-id", "all", "--parallel"]
             run_command(cmd, capture_time=True)
             
         elif choice == "7":
             print(f"\n{YELLOW}Running Full Cesena Scrape Preset...{RESET}")
             # First, Coop Scrape
             print(f"\n{CYAN}Part 1: Scraping Coop Cesena promotions...{RESET}")
-            subprocess.run([sys.executable, "main.py", "--supermarket", "coop", "--store-id", "0315"])
+            subprocess.run([PYTHON_EXE, "main.py", "--supermarket", "coop", "--store-id", "0315"])
             
             # Second, Conad Scrape in Parallel
             print(f"\n{CYAN}Part 2: Scraping Conad Cesena flyers in parallel...{RESET}")
-            subprocess.run([sys.executable, "main.py", "--supermarket", "conad", "--store-id", "44.1396438,12.2464292", "--parallel"])
+            subprocess.run([PYTHON_EXE, "main.py", "--supermarket", "conad", "--store-id", "44.1396438,12.2464292", "--parallel"])
             
             # Third, IN's Scrape
             print(f"\n{CYAN}Part 3: Scraping IN's Cesena flyers offline...{RESET}")
-            subprocess.run([sys.executable, "main.py", "--supermarket", "ins", "--store-id", "44.1396438,12.2464292"])
+            subprocess.run([PYTHON_EXE, "main.py", "--supermarket", "ins", "--store-id", "44.1396438,12.2464292"])
             
             # Fourth, Dpiù Scrape
             print(f"\n{CYAN}Part 4: Scraping Dpiù Cesena promotions...{RESET}")
             cmd = [
-                sys.executable, "main.py",
+                PYTHON_EXE, "main.py",
                 "--supermarket", "dpiu",
                 "--store-id", "44.1396438,12.2464292"
             ]

@@ -19,7 +19,8 @@ logger = setup_logger("INSDriver")
 
 
 class ExtractedOffer(BaseModel):
-    name: str = Field(description="Nome del prodotto ed eventuale descrizione breve (es. 'Biscotti Frollini')")
+    reasoning: str = Field(description="Ragionamento dettagliato step-by-step: leggi il prezzo, identifica il brand/nome/peso, e calcola i confini esatti della sola foto del prodotto (Chain-of-Thought)")
+    name: str = Field(description="Nome del prodotto ed eventuale descrizione breve in italiano (es. 'Biscotti Frollini')")
     brand: Optional[str] = Field(None, description="Marca del prodotto se chiaramente indicata (es. 'Mulino Bianco')")
     weight_or_volume: Optional[str] = Field(None, description="Peso, volume o quantità (es. '500g', '6x1.5L')")
     price: float = Field(description="Prezzo in euro dell'offerta in cifre decimali (es. 1.89)")
@@ -279,14 +280,19 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
                     client = genai.Client()
 
                     prompt = (
-                        "Sei un assistente visivo di estrema precisione. Analizza questa pagina di volantino promozionale ed estrai "
-                        "tutte le offerte commerciali di prodotti presenti. Per ciascun prodotto, estrai tutti i dati "
-                        "strutturati richiesti dallo schema JSON. In particolare, identifica la bounding box visuale [ymin, xmin, ymax, xmax] "
-                        "del SOLO prodotto fisico/confezione/foto (escludendo testi descrittivi, prezzi ed elementi grafici di sfondo degli "
-                        "altri prodotti per evitare ritagli sporchi o sovrapposizioni). Il rettangolo deve inquadrare in modo "
-                        "estremamente millimetrico e centrato la foto del prodotto associato all'offerta. "
-                        "Le coordinate della bounding box devono essere normalizzate da 0 a 1000, dove ymin corrisponde al "
-                        "bordo superiore (0 in alto, 1000 in basso) e xmin al bordo sinistro (0 a sinistra, 1000 a destra)."
+                        "Ruolo: Sei un estrattore esperto di dati visivi e OCR per i volantini promozionali della GDO (Grande Distribuzione Organizzata) italiana.\n"
+                        "Task: Analizza attentamente l'immagine di questa pagina di volantino del supermercato 'IN's Mercato' ed estrai in modo accurato tutte le offerte commerciali.\n\n"
+                        "Fasi per ciascuna offerta (ragionamento step-by-step):\n"
+                        "1. Localizza visivamente una specifica scheda/sezione promozionale di prodotto.\n"
+                        "2. Leggi il prezzo (es. '1,49' -> convertilo in float 1.49) ed eventuali sconti (es. '-30%'). Se il prezzo ha euro e centesimi separati o rimpiccioliti, uniscili correttamente.\n"
+                        "3. Identifica il testo descrittivo del prodotto in italiano, isolando il nome (name), la marca (brand, es. 'In's', 'Bio', 'Valis') e il formato/peso (weight_or_volume, es. '400 g', '1,5 L', 'confezione da 4 pezzi').\n"
+                        "4. Identifica i confini millimetrici della FOTO del prodotto fisico o del suo packaging (il solo flacone, bottiglia, scatola, pacchetto). Escludi il testo, il prezzo e i bollini grafici dal rettangolo di ritaglio (bbox) per ottenere un'immagine pulita del solo prodotto.\n"
+                        "5. Calcola le coordinate normalizzate [ymin, xmin, ymax, xmax] da 0 a 1000 per l'immagine del prodotto.\n\n"
+                        "Regole di validazione:\n"
+                        "- Nome prodotto (name): Scrivilo in Title Case pulito (es. 'Biscotti frollini integrali'). Non includere pesi o marche qui.\n"
+                        "- Marca (brand): Estrai solo il brand reale (se indicato). Se assente, lascia null.\n"
+                        "- Categoria (category): Mappa il prodotto in un reparto italiano standard (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
+                        "- Rettangolo (bbox): Deve essere una bounding box stretta, millimetrica e centrata sulla sola foto dell'articolo promozionale nel sistema normalizzato 0-1000 (ymin alto, xmin sinistra, ymax basso, xmax destra)."
                     )
 
                     # Iterate pages
@@ -307,16 +313,32 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
                         pil_img.save(temp_img_path)
 
                         try:
-                            # Send request to Gemini API
-                            response = client.models.generate_content(
-                                model='gemini-2.5-flash',
-                                contents=[pil_img, prompt],
-                                config=types.GenerateContentConfig(
-                                    response_mime_type="application/json",
-                                    response_schema=ExtractedOffersList,
-                                    temperature=0.1
-                                ),
-                            )
+                            # Send request to Gemini API with exponential backoff retry loop
+                            response = None
+                            max_retries = 3
+                            retry_backoff = 3
+                            for attempt in range(max_retries):
+                                try:
+                                    response = client.models.generate_content(
+                                        model='gemini-2.5-flash',
+                                        contents=[pil_img, prompt],
+                                        config=types.GenerateContentConfig(
+                                            response_mime_type="application/json",
+                                            response_schema=ExtractedOffersList,
+                                            temperature=0.1
+                                        ),
+                                    )
+                                    break
+                                except Exception as api_err:
+                                    if attempt == max_retries - 1:
+                                        raise api_err
+                                    logger.warning(
+                                        f"Gemini API call failed (attempt {attempt + 1}/{max_retries}): {api_err}. "
+                                        f"Retrying in {retry_backoff} seconds..."
+                                    )
+                                    time.sleep(retry_backoff)
+                                    retry_backoff *= 2
+
 
                             if os.path.exists(temp_img_path):
                                 os.remove(temp_img_path)

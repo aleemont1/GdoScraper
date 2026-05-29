@@ -1,9 +1,35 @@
+import os
+import sys
+import subprocess
+
+# Self-healing virtualenv re-execution
+def _ensure_virtualenv():
+    """
+    Guarantees the dashboard server and its manual upload parsers run inside 
+    the project's virtual environment (.venv) where all GDO scraping libraries are installed.
+    """
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_python = os.path.join(script_dir, ".venv", "bin", "python")
+    
+    # If the local venv python exists and we are not already running on it, re-execute
+    if os.path.exists(venv_python) and os.path.abspath(sys.executable) != os.path.abspath(venv_python):
+        print(f"\n[Dashboard] 🔄 Running on global Python ({sys.executable}).")
+        print(f"[Dashboard] 🚀 Self-healing: Re-executing inside the uv virtual environment ({venv_python})...\n")
+        
+        cmd = [venv_python] + sys.argv
+        try:
+            # Replace current process image cleanly on Unix-like systems
+            os.execv(venv_python, cmd)
+        except Exception:
+            # Fallback subprocess call if execv fails
+            sys.exit(subprocess.call(cmd))
+
+_ensure_virtualenv()
+
 import http.server
 import socketserver
 import sqlite3
 import json
-import os
-import sys
 from typing import Dict, Any, List
 from email.parser import BytesParser
 
@@ -555,7 +581,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 </div>
                 <div class="input-group">
                     <label for="uploadSupermarket">Supermarket Name</label>
-                    <input type="text" id="uploadSupermarket" placeholder="e.g. LIDL, ESSALUNGA" required>
+                    <input type="text" id="uploadSupermarket" placeholder="e.g. LIDL, ESSELUNGA" required>
                 </div>
                 <div class="input-group">
                     <label for="uploadStoreId">Store ID / City</label>

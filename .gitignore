@@ -24,3 +24,9 @@ init_antigravity.sh
 
 # Cartella storage locale (immagini, database, log di qualita')
 storage/
+
+# File di test temporanei e scratchpad di sviluppo
+scratch/
+dpiu.txt
+out*.json
+*.log

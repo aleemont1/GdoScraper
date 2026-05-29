@@ -99,59 +99,64 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             margin-top: 5px;
         }
 
-        /* KPI / Stats Row */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .kpi-card {
+        /* Statistics Section & Report Card */
+        .stats-panel-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 16px;
             padding: 22px;
+            margin-bottom: 30px;
             backdrop-filter: var(--glass-blur);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
             transition: var(--transition-smooth);
-            position: relative;
-            overflow: hidden;
         }
 
-        .kpi-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(139, 92, 246, 0.3);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+        .stats-panel-card:hover {
+            border-color: rgba(139, 92, 246, 0.2);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
         }
 
-        .kpi-label {
-            font-size: 0.85rem;
-            font-weight: 600;
-            color: var(--text-secondary);
+        .stats-list li {
+            transition: var(--transition-smooth);
+            padding: 8px 10px;
+            border-radius: 8px;
+        }
+
+        .stats-list li:hover {
+            background: rgba(255, 255, 255, 0.03);
+            transform: translateX(4px);
+        }
+
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .stats-table th {
+            border-bottom: 1.5px solid var(--border-color);
+            padding: 10px 8px;
+            font-size: 0.8rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
-        .kpi-value {
-            font-size: 2.2rem;
-            font-weight: 700;
-            margin: 10px 0 5px 0;
+        .stats-table td {
+            padding: 12px 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .kpi-footer {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
+        .stats-table tbody tr {
+            transition: var(--transition-smooth);
         }
 
-        .kpi-total .kpi-value { color: #ffffff; }
-        .kpi-coop .kpi-value { color: var(--accent-green); }
-        .kpi-conad .kpi-value { color: var(--accent-orange); }
-        .kpi-ins .kpi-value { color: var(--accent-purple); }
-        .kpi-dpiu .kpi-value { color: var(--accent-red); }
-        .kpi-avg .kpi-value { color: var(--accent-blue); }
+        .stats-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .badge-manual {
+            background-color: rgba(59, 130, 246, 0.12);
+            color: var(--accent-blue);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
 
         /* Control Panel / Filters Card */
         .control-panel {
@@ -577,37 +582,68 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         </div>
     </section>
 
-    <!-- KPI / Stats Row -->
-    <section class="stats-grid">
-        <div class="kpi-card kpi-total">
-            <span class="kpi-label">Total Offers</span>
-            <span class="kpi-value" id="kpiTotal">0</span>
-            <span class="kpi-footer">Extracted in SQLite promotions table</span>
+    <!-- Statistics Section -->
+    <section class="stats-panel-card">
+        <div style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;" onclick="toggleStatsPanel()">
+            <h2 style="margin: 0; font-size: 1.1rem; font-weight: 600; display: flex; align-items: center; gap: 10px;">
+                <span>📊</span> Statistiche e Report Volantini
+            </h2>
+            <span id="statsToggleIcon" style="font-size: 0.85rem; color: var(--text-secondary); transition: var(--transition-smooth);">[ Collapse ▲ ]</span>
         </div>
-        <div class="kpi-card kpi-coop">
-            <span class="kpi-label">Coop Offers</span>
-            <span class="kpi-value" id="kpiCoop">0</span>
-            <span class="kpi-footer">From REST API integrations</span>
-        </div>
-        <div class="kpi-card kpi-conad">
-            <span class="kpi-label">Conad Offers</span>
-            <span class="kpi-value" id="kpiConad">0</span>
-            <span class="kpi-footer">From Column-First grid segments</span>
-        </div>
-        <div class="kpi-card kpi-ins">
-            <span class="kpi-label">IN's Offers</span>
-            <span class="kpi-value" id="kpiIns">0</span>
-            <span class="kpi-footer">From Crawler & Dual-Engine OCR</span>
-        </div>
-        <div class="kpi-card kpi-dpiu">
-            <span class="kpi-label">Dpiù Offers</span>
-            <span class="kpi-value" id="kpiDpiu">0</span>
-            <span class="kpi-footer">From REST API integrations</span>
-        </div>
-        <div class="kpi-card kpi-avg">
-            <span class="kpi-label">Avg Promo Price</span>
-            <span class="kpi-value" id="kpiAvg">€ 0.00</span>
-            <span class="kpi-footer">Calculated across active database items</span>
+        
+        <div id="statsPanelContent" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 30px; margin-top: 20px; animation: fadeIn 0.2s ease-out;">
+            <!-- Left Panel: Global Stats List -->
+            <div>
+                <h3 style="margin-top: 0; margin-bottom: 15px; font-size: 0.95rem; color: #ffffff; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                    📈 Statistiche Globali
+                </h3>
+                <ul class="stats-list" style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">
+                    <li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Totale Offerte Database</span>
+                        <strong id="statGlobalTotal" style="font-size: 1.1rem; color: #ffffff;">0</strong>
+                    </li>
+                    <li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Prezzo Medio Promo</span>
+                        <strong id="statGlobalAvgPrice" style="font-size: 1.1rem; color: var(--accent-blue);">€ 0.00</strong>
+                    </li>
+                    <li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Sconto Massimo Rilevato</span>
+                        <strong id="statGlobalMaxDiscount" style="font-size: 1.1rem; color: var(--accent-red);">0%</strong>
+                    </li>
+                    <li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed rgba(255,255,255,0.05); padding-bottom: 8px;">
+                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Immagini Ritagliate (Coverage)</span>
+                        <strong id="statGlobalImageCoverage" style="font-size: 1rem; color: var(--accent-green);">0 / 0 (0%)</strong>
+                    </li>
+                    <li style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 4px;">
+                        <span style="color: var(--text-secondary); font-size: 0.9rem;">Tipologia Promo Frequente</span>
+                        <strong id="statGlobalTopPromoType" style="font-size: 0.95rem; color: var(--accent-purple);">STANDARD</strong>
+                    </li>
+                </ul>
+            </div>
+            
+            <!-- Right Panel: Supermarket Stats Table -->
+            <div>
+                <h3 style="margin-top: 0; margin-bottom: 15px; font-size: 0.95rem; color: #ffffff; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">
+                    🏪 Statistiche per Insegna
+                </h3>
+                <div style="overflow-x: auto; max-height: 220px; overflow-y: auto;">
+                    <table class="stats-table">
+                        <thead>
+                            <tr style="color: var(--text-secondary);">
+                                <th style="text-align: left;">Insegna</th>
+                                <th style="text-align: center;">Offerte</th>
+                                <th style="text-align: right;">P. Medio</th>
+                                <th style="text-align: right;">Prezzi (Min-Max)</th>
+                                <th style="text-align: center;">Sconto Max</th>
+                                <th style="text-align: right;">Immagini (%)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="statsTableBody">
+                            <!-- Filled dynamically in JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -759,27 +795,156 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             }
         }
 
+        function toggleStatsPanel() {
+            const content = document.getElementById('statsPanelContent');
+            const icon = document.getElementById('statsToggleIcon');
+            if (content.style.display === 'none') {
+                content.style.display = 'grid';
+                icon.textContent = '[ Collapse ▲ ]';
+            } else {
+                content.style.display = 'none';
+                icon.textContent = '[ Expand ▼ ]';
+            }
+        }
+
         // Calculates top level KPI metrics from active dataset
         function calculateKPIs() {
             const total = allOffers.length;
-            const coopCount = allOffers.filter(o => o.supermarket === 'COOP').length;
-            const conadCount = allOffers.filter(o => o.supermarket === 'CONAD').length;
-            const insCount = allOffers.filter(o => o.supermarket === 'INS').length;
-            const dpiuCount = allOffers.filter(o => o.supermarket === 'DPIU').length;
             
-            // Calculate average price of promos
+            // 1. Calculate Global stats
             let avgPrice = 0;
+            let maxDiscount = 0;
+            let imagesCount = 0;
+            const promoTypeCounts = {};
+            
+            allOffers.forEach(o => {
+                // Price avg
+                avgPrice += o.price;
+                // Max discount
+                if (o.discount_percentage && o.discount_percentage > maxDiscount) {
+                    maxDiscount = o.discount_percentage;
+                }
+                // Image coverage
+                if (o.image_url && o.image_url.trim().length > 0) {
+                    imagesCount++;
+                }
+                // Promo types
+                const pType = o.promo_type || 'STANDARD';
+                promoTypeCounts[pType] = (promoTypeCounts[pType] || 0) + 1;
+            });
+            
             if (total > 0) {
-                const sum = allOffers.reduce((acc, o) => acc + o.price, 0);
-                avgPrice = sum / total;
+                avgPrice = avgPrice / total;
             }
             
-            document.getElementById('kpiTotal').textContent = total;
-            document.getElementById('kpiCoop').textContent = coopCount;
-            document.getElementById('kpiConad').textContent = conadCount;
-            document.getElementById('kpiIns').textContent = insCount;
-            document.getElementById('kpiDpiu').textContent = dpiuCount;
-            document.getElementById('kpiAvg').textContent = `€ ${avgPrice.toFixed(2)}`;
+            // Find top promo type
+            let topPromoType = 'N/D';
+            let maxTypeCount = 0;
+            for (const [type, count] of Object.entries(promoTypeCounts)) {
+                if (count > maxTypeCount) {
+                    maxTypeCount = count;
+                    topPromoType = type;
+                }
+            }
+            
+            // Map promo type human readable labels
+            const promoLabels = {
+                'STANDARD': 'STANDARD (Prezzo Tag)',
+                '1+1': '1+1 (Prendi 2 paghi 1)',
+                'PERCENTAGE_DISCOUNT': 'Sconto Percentuale',
+                'PREZZO_SOCIO': 'Prezzo Soci',
+                'DISCOUNT': 'Sconto Semplice'
+            };
+            const topPromoLabel = promoLabels[topPromoType] || topPromoType;
+            
+            // Update global stats DOM
+            document.getElementById('statGlobalTotal').textContent = total;
+            document.getElementById('statGlobalAvgPrice').textContent = `€ ${avgPrice.toFixed(2)}`;
+            document.getElementById('statGlobalMaxDiscount').textContent = `${maxDiscount}%`;
+            
+            const imgPercent = total > 0 ? ((imagesCount / total) * 100).toFixed(1) : 0;
+            document.getElementById('statGlobalImageCoverage').textContent = `${imagesCount} / ${total} (${imgPercent}%)`;
+            document.getElementById('statGlobalTopPromoType').textContent = topPromoLabel;
+            
+            // 2. Calculate Per-Supermarket stats
+            const uniqueMarketsSet = new Set(allOffers.map(o => o.supermarket));
+            const uniqueMarkets = Array.from(uniqueMarketsSet).sort();
+            
+            const statsTableBody = document.getElementById('statsTableBody');
+            statsTableBody.innerHTML = '';
+            
+            if (uniqueMarkets.length === 0) {
+                statsTableBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 15px;">Nessun dato disponibile nel database</td></tr>`;
+                return;
+            }
+            
+            uniqueMarkets.forEach(market => {
+                const mOffers = allOffers.filter(o => o.supermarket === market);
+                const mTotal = mOffers.length;
+                
+                let mAvgPrice = 0;
+                let mMinPrice = Infinity;
+                let mMaxPrice = -Infinity;
+                let mMaxDiscount = 0;
+                let mImagesCount = 0;
+                
+                mOffers.forEach(o => {
+                    mAvgPrice += o.price;
+                    if (o.price < mMinPrice) mMinPrice = o.price;
+                    if (o.price > mMaxPrice) mMaxPrice = o.price;
+                    if (o.discount_percentage && o.discount_percentage > mMaxDiscount) {
+                        mMaxDiscount = o.discount_percentage;
+                    }
+                    if (o.image_url && o.image_url.trim().length > 0) {
+                        mImagesCount++;
+                    }
+                });
+                
+                if (mTotal > 0) {
+                    mAvgPrice = mAvgPrice / mTotal;
+                } else {
+                    mMinPrice = 0;
+                    mMaxPrice = 0;
+                }
+                
+                const mImgPercent = mTotal > 0 ? ((mImagesCount / mTotal) * 100).toFixed(1) : 0;
+                
+                // Get display properties for the supermarket
+                let badgeClass = 'badge-manual';
+                let displayName = market;
+                if (market === 'COOP') {
+                    badgeClass = 'badge-coop';
+                    displayName = 'COOP';
+                } else if (market === 'CONAD') {
+                    badgeClass = 'badge-conad';
+                    displayName = 'CONAD';
+                } else if (market === 'INS') {
+                    badgeClass = 'badge-ins';
+                    displayName = "IN'S";
+                } else if (market === 'DPIU') {
+                    badgeClass = 'badge-dpiu';
+                    displayName = 'DPIÙ';
+                }
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="padding: 12px 8px; vertical-align: middle;">
+                        <span class="badge ${badgeClass}">
+                            ${displayName}
+                        </span>
+                    </td>
+                    <td style="padding: 12px 8px; text-align: center; font-weight: bold; color: #ffffff;">${mTotal}</td>
+                    <td style="padding: 12px 8px; text-align: right; color: var(--accent-blue); font-weight: 500;">€ ${mAvgPrice.toFixed(2)}</td>
+                    <td style="padding: 12px 8px; text-align: right; color: var(--text-secondary); font-size: 0.85rem;">
+                        € ${mMinPrice.toFixed(2)} - € ${mMaxPrice.toFixed(2)}
+                    </td>
+                    <td style="padding: 12px 8px; text-align: center; color: var(--accent-red); font-weight: 600;">${mMaxDiscount}%</td>
+                    <td style="padding: 12px 8px; text-align: right; color: var(--accent-green); font-size: 0.85rem;">
+                        ${mImagesCount} <small style="color: var(--text-secondary);">(${mImgPercent}%)</small>
+                    </td>
+                `;
+                statsTableBody.appendChild(tr);
+            });
         }
 
         // Handles search field or dropdown filters changes

@@ -130,6 +130,7 @@ def main() -> None:
             max_flyers=args.max_flyers,
             radius=args.radius,
             choose_store=args.choose_store,
+            choose_flyer=args.choose_flyer,
             parallel=args.parallel
         )
     elif args.supermarket == "ins":

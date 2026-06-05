@@ -23,6 +23,7 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         max_flyers: Optional[int] = None, 
         radius: int = 5, 
         choose_store: bool = False,
+        choose_flyer: bool = False,
         parallel: bool = False
     ) -> None:
         super().__init__(parallel=parallel)
@@ -31,6 +32,7 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         self.max_flyers = max_flyers
         self.radius = radius
         self.choose_store = choose_store
+        self.choose_flyer = choose_flyer
 
     @property
     def _supermarket_name(self) -> str:
@@ -170,16 +172,63 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
             logger.error(f"Failed to query Conad Flyers API: {e}")
             return []
 
-        # 3. Apply maximum download limits
+        # 3. Filter/Choose flyers
+        selected_flyers = []
+        if self.choose_flyer and len(active_flyers) > 1:
+            print(f"\nAvailable Conad promotional flyers:")
+            for idx, flyer in enumerate(active_flyers):
+                title = flyer.get("title", "Flyer")
+                name = flyer.get("name", "")
+                display_title = title if title else name
+                
+                # Format validity dates
+                valid_from = flyer.get("validFrom")
+                valid_to = flyer.get("validTo")
+                validity_str = ""
+                if valid_from and valid_to:
+                    try:
+                        from datetime import datetime
+                        dt_from = datetime.fromtimestamp(valid_from / 1000.0).strftime('%d/%m/%Y')
+                        dt_to = datetime.fromtimestamp(valid_to / 1000.0).strftime('%d/%m/%Y')
+                        validity_str = f" [Validity: DAL {dt_from} AL {dt_to}]"
+                    except Exception:
+                        pass
+                
+                print(f"  {idx+1}) {display_title}{validity_str} (Slug: {flyer.get('slug')})")
+                
+            while True:
+                try:
+                    user_input = input(f"Select flyer(s) to download & scrape (comma-separated indices, e.g. 1,3 or 'all', default: all): ").strip()
+                    if not user_input or user_input.lower() == "all":
+                        selected_flyers = active_flyers
+                        break
+                        
+                    indices = [int(i.strip()) for i in user_input.split(",") if i.strip().isdigit()]
+                    valid_indices = [i - 1 for i in indices if 0 <= i - 1 < len(active_flyers)]
+                    if valid_indices:
+                        selected_flyers = [active_flyers[i] for i in valid_indices]
+                        break
+                    else:
+                        print("Invalid selection. Please try again.")
+                except ValueError:
+                    print("Invalid input format. Use numbers separated by commas.")
+                except (KeyboardInterrupt, EOFError):
+                    print("\nSelection interrupted. Defaulting to all flyers.")
+                    selected_flyers = active_flyers
+                    break
+        else:
+            selected_flyers = active_flyers
+
+        # Apply maximum download limits to selection
         if self.max_flyers is not None and self.max_flyers > 0:
             logger.info(f"Slicing active flyer list to respect CLI limit (max: {self.max_flyers}).")
-            active_flyers = active_flyers[:self.max_flyers]
+            selected_flyers = selected_flyers[:self.max_flyers]
 
         # 4. Download and cache flyers locally
         downloaded_paths = []
         os.makedirs(self._download_subdir, exist_ok=True)
         
-        for flyer in active_flyers:
+        for flyer in selected_flyers:
             slug = flyer.get("slug", "flyer")
             pdf_url = flyer.get("pdfUrl")
             title = flyer.get("title", "Flyer")

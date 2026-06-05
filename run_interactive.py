@@ -143,6 +143,10 @@ def scrape_conad_menu():
         if choose_store == "y":
             cmd.append("--choose-store")
             
+    choose_flyer = input(f"Enable Interactive Flyer Selector? [y/N]: ").strip().lower()
+    if choose_flyer == "y":
+        cmd.append("--choose-flyer")
+
     # Multiprocessing parallel parsing choice
     parallel = input(f"Enable multi-process parallel flyer parsing? [y/N]: ").strip().lower()
     if parallel == "y":

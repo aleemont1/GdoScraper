@@ -69,10 +69,26 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     Subclasses only need to declare the target directory, parser strategies, and layout segmenters.
     """
 
-    def __init__(self, parallel: bool = False, use_gemini: bool = False) -> None:
+    def __init__(
+        self, 
+        parallel: bool = False, 
+        use_gemini: bool = False,
+        use_claude: bool = False,
+        engine: str = "AUTO"
+    ) -> None:
         self._resolved_store_id: Optional[str] = None
         self.parallel = parallel
-        self.use_gemini = use_gemini
+        
+        # Unify engine parameter and legacy booleans
+        self.engine = engine.upper().strip()
+        if use_gemini:
+            self.engine = "GEMINI"
+        elif use_claude:
+            self.engine = "CLAUDE"
+            
+        self.use_gemini = (self.engine == "GEMINI")
+        self.use_claude = (self.engine == "CLAUDE")
+        self._current_is_vector: Optional[bool] = None
 
     @property
     @abstractmethod
@@ -157,7 +173,14 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             logger.error("Invalid raw data structure provided. Expected a list of file paths.")
             return []
             
-        active_store_id = self._resolved_store_id or store_id
+        # Determine store ID, filtering out any raw file path strings
+        active_store_id = self._resolved_store_id
+        if not active_store_id or active_store_id.endswith(".pdf") or "/" in active_store_id or "\\" in active_store_id:
+            active_store_id = store_id
+            
+        if not active_store_id or active_store_id.endswith(".pdf") or "/" in active_store_id or "\\" in active_store_id:
+            active_store_id = "MANUAL_STORE"
+            
         logger.info(f"Using store ID: '{active_store_id}' for database and image tagging.")
 
         all_parsed_offers: List[ProductOffer] = []
@@ -208,8 +231,14 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 total_pages = len(pdf.pages)
                 logger.info(f"Flyer has {total_pages} pages.")
                 
-                # Dynamic Vector vs Scanned Layout Detection
-                has_vector_text = any(len(p.extract_words()) > 0 for p in pdf.pages)
+                # Dynamic Vector vs Scanned Layout Detection (with optional driver override)
+                if self._current_is_vector is not None:
+                    has_vector_text = self._current_is_vector
+                elif self.engine != "AUTO":
+                    # If a specific OCR engine (Gemini, Claude, Tesseract) is selected, completely skip vector grid parsing
+                    has_vector_text = False
+                else:
+                    has_vector_text = any(len(p.extract_words()) > 0 for p in pdf.pages)
                 
                 # --- STRATEGY A: Vector-Based PDF Parsing ---
                 if has_vector_text:
@@ -258,7 +287,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                             store_id, 
                                             offer.offer_id,
                                             col_idx=cell.get("col_idx"),
-                                            col_count=cell.get("col_count")
+                                            col_count=cell.get("col_count"),
+                                            product_name=offer.name
                                         )
                                         
                                     offer.supermarket = self._supermarket_name
@@ -325,11 +355,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                 logger.error(f"Failed to render page {page_idx + 1}: {render_err}")
                                 continue
                                 
-                            temp_dir = "downloads/manual_temp"
-                            os.makedirs(temp_dir, exist_ok=True)
-                            temp_img_path = os.path.join(temp_dir, f"page_{page_idx}.png")
-                            pil_img.save(temp_img_path)
-                            
                             try:
                                 # Generation call wrapped in robust exponential backoff loop
                                 response = None
@@ -357,9 +382,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                         time.sleep(retry_backoff)
                                         retry_backoff *= 2
                                         
-                                if os.path.exists(temp_img_path):
-                                    os.remove(temp_img_path)
-                                    
                                 data = json.loads(response.text)
                                 offers = data.get("offers", [])
                                 logger.info(f"Page {page_idx + 1}: Extracted {len(offers)} offers from Gemini.")
@@ -380,8 +402,13 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
                                     offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                                     
-                                    image_url = None
-                                    if bbox and len(bbox) == 4:
+                                    # 1. Check for standard catalog or fuzzy reusable images
+                                    from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
+                                    image_url = get_standard_image(name)
+                                    if not image_url:
+                                        image_url = find_reusable_image(self._supermarket_name, name)
+                                        
+                                    if not image_url and bbox and len(bbox) == 4:
                                         ymin, xmin, ymax, xmax = bbox
                                         w_px, h_px = pil_img.size
                                         
@@ -409,6 +436,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                         
                                         try:
                                             cropped = pil_img.crop(crop_box)
+                                            # Apply white background auto-trimmer post-processing
+                                            cropped = post_process_image_background(cropped)
                                             cropped.save(file_path, "PNG")
                                             image_url = f"/storage/images/{file_name}"
                                         except Exception as crop_err:
@@ -434,11 +463,247 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     parsed_offers.append(offer)
                             except Exception as page_api_err:
                                 logger.error(f"Gemini page parsing failed: {page_api_err}")
-                                if os.path.exists(temp_img_path):
-                                    os.remove(temp_img_path)
                                 continue
                                 
-                    # Engine B.2: Local Offline Tesseract OCR (Default Fallback)
+                    # Engine B.2: Claude Haiku 4.5 Multimodal Visual OCR
+                    elif self.use_claude:
+                        logger.info("Using Anthropic Claude Haiku 4.5 visual parsing API...")
+                        import anthropic
+                        import base64
+                        from PIL import Image
+                        import io
+                        
+                        if not os.environ.get("ANTHROPIC_API_KEY"):
+                            raise ValueError(
+                                "ANTHROPIC_API_KEY environment variable is missing. "
+                                "Please configure your API key or run with a different parsing engine."
+                            )
+                            
+                        client = anthropic.Anthropic()
+                        
+                        prompt = (
+                            "Ruolo: Sei un estrattore esperto di dati visivi e OCR per i volantini promozionali della GDO (Grande Distribuzione Organizzata) italiana.\n"
+                            "Task: Analizza attentamente l'immagine di questa pagina di volantino del supermercato ed estrai in modo accurato tutte le offerte commerciali.\n\n"
+                            "Fasi per ciascuna offerta (ragionamento step-by-step):\n"
+                            "1. Localizza visivamente una specifica scheda/sezione promozionale di prodotto.\n"
+                            "2. Leggi il prezzo (es. '1,49' -> convertilo in float 1.49) ed eventuali sconti (es. '-30%'). Se il prezzo ha euro e centesimi separati o rimpiccioliti, uniscili correttamente.\n"
+                            "3. Identifica il testo descrittivo del prodotto in italiano, isolando il nome (name), la marca (brand, es. 'Bio', 'Valis') e il formato/peso (weight_or_volume, es. '400 g', '1,5 L', 'confezione da 4 pezzi').\n"
+                            "4. Identifica i confini della FOTO del prodotto o del suo packaging. Lascia un comodo margine di sicurezza (un bordo o 'breathing room' extra di circa il 5-8%) attorno al prodotto per evitare che le estremità, i tappi o le etichette vengano tagliati.\n"
+                            "5. Calcola le coordinate normalizzate [ymin, xmin, ymax, xmax] da 0 a 1000 per l'immagine del prodotto.\n\n"
+                            "Regole di validazione:\n"
+                            "- Nome prodotto (name): Scrivilo in Title Case pulito (es. 'Biscotti frollini integrali'). Non includere pesi o marche qui.\n"
+                            "- Marca (brand): Estrai solo il brand reale (se indicato). Se assente, lascia null.\n"
+                            "- Categoria (category): Mappa il prodotto in un reparto italiano standard (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
+                            "- Rettangolo (bbox): Deve inquadrare la foto dell'articolo promozionale lasciando un piccolo margine di sicurezza del 5-8% su tutti i lati nel sistema normalizzato 0-1000 (ymin alto, xmin sinistra, ymax basso, xmax destra)."
+                        )
+                        
+                        tool_schema = {
+                            "name": "extract_offers",
+                            "description": "Estrae l'elenco delle offerte commerciali dal volantino promozionale.",
+                            "input_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "offers": {
+                                        "type": "array",
+                                        "description": "Lista di tutte le offerte trovate nella pagina del volantino.",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "reasoning": {
+                                                    "type": "string",
+                                                    "description": "Ragionamento dettagliato step-by-step per identificare l'offerta e il suo box visivo."
+                                                },
+                                                "name": {
+                                                    "type": "string",
+                                                    "description": "Nome del prodotto in Title Case, in italiano. Escludere peso e marca."
+                                                },
+                                                "brand": {
+                                                    "type": "string",
+                                                    "description": "Marca del prodotto (es. 'Mulino Bianco'). Lasciare null se non specificato."
+                                                },
+                                                "weight_or_volume": {
+                                                    "type": "string",
+                                                    "description": "Formato, peso o volume del prodotto (es. '500g', '1L', '6 pezzi'). Lasciare null se non specificato."
+                                                },
+                                                "price": {
+                                                    "type": "number",
+                                                    "description": "Prezzo decimale dell'offerta (es. 1.99 o 0.85)."
+                                                },
+                                                "original_price": {
+                                                    "type": "number",
+                                                    "description": "Prezzo barrato/originale se visibile, altrimenti null."
+                                                },
+                                                "discount_percentage": {
+                                                    "type": "integer",
+                                                    "description": "Percentuale di sconto (es. 30 o 50). Lasciare null se non indicata."
+                                                },
+                                                "category": {
+                                                    "type": "string",
+                                                    "description": "Categoria merceologica in italiano (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona')."
+                                                },
+                                                "bbox": {
+                                                    "type": "array",
+                                                    "description": "Rettangolo di delimitazione del prodotto [ymin, xmin, ymax, xmax] normalizzato da 0 a 1000.",
+                                                    "items": {
+                                                        "type": "integer"
+                                                    }
+                                                }
+                                            },
+                                            "required": ["reasoning", "name", "price", "bbox"]
+                                        }
+                                    }
+                                },
+                                "required": ["offers"]
+                            }
+                        }
+                        
+                        for page_idx in range(total_pages):
+                            page = pdf.pages[page_idx]
+                            logger.info(f"Processing Page {page_idx + 1}/{total_pages} via Claude...")
+                            
+                            try:
+                                pil_img = page.to_image(resolution=120).original
+                            except Exception as render_err:
+                                logger.error(f"Failed to render page {page_idx + 1}: {render_err}")
+                                continue
+                                
+                            # Convert PIL image to base64 PNG
+                            buffered = io.BytesIO()
+                            pil_img.save(buffered, format="PNG")
+                            img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                            
+                            try:
+                                response = None
+                                max_retries = 3
+                                retry_backoff = 3
+                                for attempt in range(max_retries):
+                                    try:
+                                        response = client.messages.create(
+                                            model=os.environ.get("CLAUDE_MODEL_NAME", "claude-haiku-4-5"),
+                                            max_tokens=4000,
+                                            temperature=0.1,
+                                            system="Sei un estrattore esperto di dati visivi per volantini promozionali della GDO italiana.",
+                                            messages=[
+                                                {
+                                                    "role": "user",
+                                                    "content": [
+                                                        {
+                                                            "type": "image",
+                                                            "source": {
+                                                                "type": "base64",
+                                                                "media_type": "image/png",
+                                                                "data": img_base64
+                                                            }
+                                                        },
+                                                        {
+                                                            "type": "text",
+                                                            "text": prompt
+                                                        }
+                                                    ]
+                                                }
+                                            ],
+                                            tools=[tool_schema],
+                                            tool_choice={"type": "tool", "name": "extract_offers"}
+                                        )
+                                        break
+                                    except Exception as api_err:
+                                        if attempt == max_retries - 1:
+                                            raise api_err
+                                        logger.warning(
+                                            f"Claude API call failed (attempt {attempt + 1}/{max_retries}): {api_err}. "
+                                            f"Retrying in {retry_backoff} seconds..."
+                                        )
+                                        time.sleep(retry_backoff)
+                                        retry_backoff *= 2
+                                        
+                                if not response:
+                                    continue
+                                    
+                                # Parse the tool invocation inputs
+                                tool_use = next(block for block in response.content if block.type == "tool_use")
+                                offers = tool_use.input.get("offers", [])
+                                logger.info(f"Page {page_idx + 1}: Extracted {len(offers)} offers from Claude.")
+                                
+                                for idx, o in enumerate(offers):
+                                    name = o.get("name")
+                                    price = o.get("price")
+                                    if not name or price is None:
+                                        continue
+                                        
+                                    brand = o.get("brand")
+                                    weight = o.get("weight_or_volume")
+                                    orig_price = o.get("original_price")
+                                    discount = o.get("discount_percentage")
+                                    bbox = o.get("bbox")
+                                    category = o.get("category")
+                                    
+                                    payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
+                                    offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
+                                    
+                                    # 1. Check for standard catalog or fuzzy reusable images
+                                    from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
+                                    image_url = get_standard_image(name)
+                                    if not image_url:
+                                        image_url = find_reusable_image(self._supermarket_name, name)
+                                        
+                                    if not image_url and bbox and len(bbox) == 4:
+                                        ymin, xmin, ymax, xmax = bbox
+                                        w_px, h_px = pil_img.size
+                                        
+                                        px_x0 = int((xmin / 1000.0) * w_px)
+                                        px_y0 = int((ymin / 1000.0) * h_px)
+                                        px_x1 = int((xmax / 1000.0) * w_px)
+                                        px_y1 = int((ymax / 1000.0) * h_px)
+                                        
+                                        # Calculate safety margin padding of 6%
+                                        box_w = px_x1 - px_x0
+                                        box_h = px_y1 - px_y0
+                                        pad_x = int(box_w * 0.06)
+                                        pad_y = int(box_h * 0.06)
+                                        
+                                        crop_box = (
+                                            max(0, px_x0 - pad_x),
+                                            max(0, px_y0 - pad_y),
+                                            min(w_px, px_x1 + pad_x),
+                                            min(h_px, px_y1 + pad_y)
+                                        )
+                                        
+                                        os.makedirs("storage/images", exist_ok=True)
+                                        file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
+                                        file_path = os.path.join("storage/images", file_name)
+                                        
+                                        try:
+                                            cropped = pil_img.crop(crop_box)
+                                            # Apply white background auto-trimmer post-processing
+                                            cropped = post_process_image_background(cropped)
+                                            cropped.save(file_path, "PNG")
+                                            image_url = f"/storage/images/{file_name}"
+                                        except Exception as crop_err:
+                                            logger.debug(f"Pillow crop error: {crop_err}")
+                                            
+                                    offer = ProductOffer(
+                                        offer_id=offer_id,
+                                        supermarket=self._supermarket_name,
+                                        store_id=store_id,
+                                        name=name.capitalize(),
+                                        brand=brand,
+                                        weight_or_volume=weight,
+                                        price=price,
+                                        original_price=orig_price,
+                                        discount_percentage=discount,
+                                        price_per_unit=None,
+                                        ean_code=None,
+                                        image_url=image_url,
+                                        category=category,
+                                        promo_type="STANDARD",
+                                        validity_string=None
+                                    )
+                                    parsed_offers.append(offer)
+                            except Exception as page_api_err:
+                                logger.error(f"Claude page parsing failed: {page_api_err}")
+                                continue
+                                
+                    # Engine B.3: Local Offline Tesseract OCR (Default Fallback)
                     else:
                         import shutil
                         if not shutil.which("tesseract"):
@@ -526,7 +791,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                                 store_id,
                                                 offer.offer_id,
                                                 col_idx=cell.get("col_idx"),
-                                                col_count=cell.get("col_count")
+                                                col_count=cell.get("col_count"),
+                                                product_name=offer.name
                                             )
                                             offer.supermarket = self._supermarket_name
                                             parsed_offers.append(offer)
@@ -550,12 +816,26 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         store_id: str, 
         offer_id: str,
         col_idx: Optional[int] = None,
-        col_count: Optional[int] = None
+        col_count: Optional[int] = None,
+        product_name: Optional[str] = None
     ) -> Optional[str]:
         """
         Crops the card image using a pre-rendered Pillow image object and saves it locally.
         Uses a perfect uniform grid-snapping algorithm if column metadata is available.
         """
+        from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
+        
+        if product_name:
+            # 1. Standard product catalog match
+            std_url = get_standard_image(product_name)
+            if std_url:
+                return std_url
+            
+            # 2. Fuzzy semantic image reuse
+            reusable_url = find_reusable_image(self._supermarket_name, product_name)
+            if reusable_url:
+                return reusable_url
+
         output_dir = "storage/images"
         os.makedirs(output_dir, exist_ok=True)
         
@@ -651,6 +931,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 )
             
             cropped_img = pil_img.crop(crop_box)
+            # Apply white background auto-trimmer post-processing
+            cropped_img = post_process_image_background(cropped_img)
             cropped_img.save(file_path, "PNG")
             return db_url
         except Exception as e:

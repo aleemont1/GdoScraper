@@ -59,16 +59,56 @@ def run_command(cmd_list, capture_time=False):
 
 def scrape_coop_menu():
     print(f"\n{GREEN}{BOLD}=== COOP SCRAPER SETTINGS ==={RESET}")
-    store_id = input(f"Enter Coop Store ID [default: {CYAN}0315{RESET} for Cesena]: ").strip()
-    if not store_id:
-        store_id = "0315"
-        
+    print("Select Store Location Targeting Mode:")
+    print(f"  {CYAN}1{RESET}) Use City Name (Automatic Geocoding & Store Discovery)")
+    print(f"  {CYAN}2{RESET}) Use GPS Coordinates (Store Discovery)")
+    print(f"  {CYAN}3{RESET}) Use Direct Store Code (e.g. 0315)")
+    print(f"  {CYAN}4{RESET}) Use Direct Coop Database Store ID (e.g. 2560)")
+    
+    mode = input("Select mode [1-4, default: 1]: ").strip()
+    if mode == "2":
+        store_id = input(f"Enter GPS Coordinates [default: {CYAN}44.1396438,12.2464292{RESET} (Cesena)]: ").strip()
+        if not store_id:
+            store_id = "44.1396438,12.2464292"
+    elif mode == "3":
+        store_id = input(f"Enter Coop Store Code (e.g. {CYAN}0315{RESET}): ").strip()
+        if not store_id:
+            store_id = "0315"
+    elif mode == "4":
+        store_id = input(f"Enter Coop Database ID (e.g. {CYAN}2560{RESET}): ").strip()
+        if not store_id:
+            store_id = "2560"
+    else:
+        store_id = input(f"Enter City Name [default: {CYAN}Cesena{RESET}]: ").strip()
+        if not store_id:
+            store_id = "Cesena"
+
+    cmd = [
+        PYTHON_EXE, "main.py",
+        "--supermarket", "coop",
+        "--store-id", store_id
+    ]
+
+    # Ask if coordinates/city mode was selected
+    if mode in ("", "1", "2"):
+        radius = input(f"Enter Search Radius in km [default: {CYAN}15{RESET}]: ").strip()
+        if not radius:
+            radius = "15"
+        cmd.extend(["--radius", radius])
+
+        choose_store = input(f"Enable Interactive Store List Selector? [y/N]: ").strip().lower()
+        if choose_store == "y":
+            cmd.append("--choose-store")
+
+    choose_flyer = input(f"Enable Interactive Flyer Selector? [y/N]: ").strip().lower()
+    if choose_flyer == "y":
+        cmd.append("--choose-flyer")
+
     db_path = input(f"Enter SQLite DB path [default: {CYAN}storage/promotions.db{RESET}]: ").strip()
-    if not db_path:
-        db_path = "storage/promotions.db"
-        
-    cmd = [PYTHON_EXE, "main.py", "--supermarket", "coop", "--store-id", store_id, "--db-path", db_path]
-    run_command(cmd)
+    if db_path:
+        cmd.extend(["--db-path", db_path])
+
+    run_command(cmd, capture_time=True)
 
 def scrape_conad_menu():
     print(f"\n{GREEN}{BOLD}=== CONAD SCRAPER SETTINGS ==={RESET}")
@@ -141,10 +181,21 @@ def scrape_ins_menu():
         "--store-id", store_id
     ]
 
-    # Choice to use Gemini API or Local Tesseract OCR
-    use_gemini = input(f"Use Gemini API Free Tier for visual OCR? [y/N, default: N]: ").strip().lower()
-    if use_gemini == "y":
-        cmd.append("--use-gemini")
+    # Choice of Parsing / OCR Engine
+    print("Select Parsing/OCR Engine:")
+    print(f"  {CYAN}1{RESET}) Auto-Detect (Offline OCR / Vector Grid)")
+    print(f"  {CYAN}2{RESET}) Offline Tesseract OCR (Scanned Fallback)")
+    print(f"  {CYAN}3{RESET}) Gemini 2.5 Flash API (Structured Multimodal)")
+    print(f"  {CYAN}4{RESET}) Claude Haiku 4.5 API (Structured Multimodal)")
+    engine_choice = input("Select engine [1-4, default: 1]: ").strip()
+    if engine_choice == "2":
+        cmd.extend(["--engine", "TESSERACT"])
+    elif engine_choice == "3":
+        cmd.extend(["--engine", "GEMINI"])
+    elif engine_choice == "4":
+        cmd.extend(["--engine", "CLAUDE"])
+    else:
+        cmd.extend(["--engine", "AUTO"])
 
     # Multiprocessing parallel parsing choice
     parallel = input(f"Enable multi-process parallel flyer parsing? [y/N]: ").strip().lower()

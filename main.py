@@ -48,6 +48,17 @@ def main() -> None:
         help="Use Gemini 2.5 Flash API for OCR-based flyer scraping instead of local offline Tesseract."
     )
     parser.add_argument(
+        "--use-claude",
+        action="store_true",
+        help="Use Anthropic Claude Haiku 4.5 API for OCR-based flyer scraping."
+    )
+    parser.add_argument(
+        "--engine",
+        choices=["AUTO", "TESSERACT", "GEMINI", "CLAUDE"],
+        default="AUTO",
+        help="Explicitly choose the parsing/OCR engine to use (default: AUTO)."
+    )
+    parser.add_argument(
         "--store-id",
         required=True,
         help=(
@@ -65,6 +76,11 @@ def main() -> None:
         "--choose-store",
         action="store_true",
         help="Enable interactive terminal selection menu when multiple stores are found within the search radius."
+    )
+    parser.add_argument(
+        "--choose-flyer",
+        action="store_true",
+        help="Enable interactive terminal selection menu to choose which Coop flyer(s) to scrape."
     )
     parser.add_argument(
         "--max-flyers",
@@ -95,9 +111,20 @@ def main() -> None:
         logger.critical(f"Database initialization failed: {e}")
         sys.exit(1)
         
+    # Resolve the OCR/parsing engine selection
+    engine = args.engine.upper().strip()
+    if args.use_gemini:
+        engine = "GEMINI"
+    elif args.use_claude:
+        engine = "CLAUDE"
+
     driver = None
     if args.supermarket == "coop":
-        driver = CoopSupermarketDriver()
+        driver = CoopSupermarketDriver(
+            radius=args.radius,
+            choose_store=args.choose_store,
+            choose_flyer=args.choose_flyer
+        )
     elif args.supermarket == "conad":
         driver = ConadSupermarketDriver(
             max_flyers=args.max_flyers,
@@ -109,17 +136,22 @@ def main() -> None:
         driver = INSSupermarketDriver(
             max_flyers=args.max_flyers,
             parallel=args.parallel,
-            use_gemini=args.use_gemini
+            use_gemini=(engine == "GEMINI"),
+            use_claude=(engine == "CLAUDE"),
+            engine=engine
         )
     elif args.supermarket == "dpiu":
         driver = DpiuSupermarketDriver(
-            max_flyers=args.max_flyers
+            max_flyers=args.max_flyers,
+            radius=args.radius,
+            choose_store=args.choose_store
         )
     elif args.supermarket == "manual":
         driver = ManualSupermarketDriver(
             supermarket_name=args.custom_supermarket,
-            use_gemini=args.use_gemini,
-            parallel=args.parallel
+            store_id=args.store_id,
+            parallel=args.parallel,
+            engine=engine
         )
         
     if not driver:

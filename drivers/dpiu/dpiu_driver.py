@@ -7,7 +7,7 @@ import requests
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
-from core.base_driver import AbstractSupermarketDriver
+from core.base_driver import AbstractApiSupermarketDriver
 from core.models import ProductOffer
 from utils.logger import setup_logger
 
@@ -50,23 +50,25 @@ def decrypt_cryptojs_aes(ciphertext_b64: str, passphrase: str) -> str:
     return decrypted.decode("utf-8")
 
 
-class DpiuSupermarketDriver(AbstractSupermarketDriver):
+class DpiuSupermarketDriver(AbstractApiSupermarketDriver):
     """
     Concrete scraper driver strategy for Dpiù (D+ discount supermarket).
     Uses clean REST API integrations, dynamic JWT Bearer token generation,
     and a local Haversine-based GPS store lookup.
     """
 
-    def __init__(self, max_flyers: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        max_flyers: Optional[int] = None,
+        radius: int = 15,
+        choose_store: bool = False,
+        choose_flyer: bool = False
+    ) -> None:
+        super().__init__(radius=radius, choose_store=choose_store, choose_flyer=choose_flyer)
         self.max_flyers = max_flyers
-        self._session = requests.Session()
+        
+        # Override and configure headers specific to Dpiù
         self._session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
             "Origin": "https://dpiu.maxidi.it",
             "Referer": "https://dpiu.maxidi.it/"
         })
@@ -131,35 +133,29 @@ class DpiuSupermarketDriver(AbstractSupermarketDriver):
             logger.error(f"OAuth2 authentication flow failed: {e}")
             raise e
 
-    def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """
-        Computes the great-circle distance between two points in kilometers.
-        """
-        R = 6371.0
-        
-        phi1 = math.radians(lat1)
-        phi2 = math.radians(lat2)
-        delta_phi = math.radians(lat2 - lat1)
-        delta_lambda = math.radians(lon2 - lon1)
-        
-        a = math.sin(delta_phi / 2.0)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2.0)**2
-        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
-        
-        return R * c
-
     def _resolve_store_alias(self, store_id: str, bearer_token: str) -> str:
         """
-        Resolves direct store alias or locates the closest physical store using local Haversine matching.
+        Resolves direct store alias, coordinates, or city name, and matches
+        to the closest/selected Dpiù physical store.
         """
-        coords_match = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*$", store_id)
-        if not coords_match:
-            logger.info(f"Using direct Dpiù store alias: '{store_id}'")
-            return store_id
+        lat, lon = None, None
 
-        lat = float(coords_match.group(1))
-        lon = float(coords_match.group(2))
-        logger.info(f"Resolving coordinates ({lat}, {lon}) via Dpiù local Haversine stores matcher...")
+        # Check if coordinates first
+        coords_match = self.COORDINATES_REGEX.match(store_id)
+        if coords_match:
+            lat = float(coords_match.group(1))
+            lon = float(coords_match.group(2))
+            logger.info(f"Resolved coordinates ({lat}, {lon}) directly from store_id.")
+        else:
+            # Try geocoding city name or query
+            coords = self._geocode_location(store_id)
+            if coords:
+                lat, lon = coords
+                logger.info(f"Geocoded '{store_id}' to coordinates: ({lat}, {lon})")
+            else:
+                logger.warning(f"Could not geocode '{store_id}'. Treating as direct alias or searching aliases...")
 
+        # Retrieve store list
         url = "https://dpiu.maxidi.it/digitalflyer/api/maxidi/dpiu/stores?size=500"
         headers = {"Authorization": f"Bearer {bearer_token}"}
         
@@ -167,14 +163,17 @@ class DpiuSupermarketDriver(AbstractSupermarketDriver):
             res = self._session.get(url, headers=headers, timeout=15)
             res.raise_for_status()
             stores = res.json()
-            
-            if not stores:
-                logger.warning("No Dpiù stores returned from API. Defaulting to 'd-cesena'.")
-                return "d-cesena"
-                
-            closest_store = None
-            min_dist = float("inf")
-            
+        except Exception as e:
+            logger.error(f"Failed to query Dpiù stores API: {e}")
+            stores = []
+
+        if not stores:
+            logger.warning("No Dpiù stores list available. Defaulting to 'd-cesena'.")
+            return "d-cesena"
+
+        # If we have lat and lon, calculate distances to all stores
+        if lat is not None and lon is not None:
+            stores_with_distance = []
             for s in stores:
                 gps = s.get("gpsCoordinates")
                 if gps and isinstance(gps, dict):
@@ -182,23 +181,72 @@ class DpiuSupermarketDriver(AbstractSupermarketDriver):
                     s_lon = gps.get("longitude")
                     if s_lat is not None and s_lon is not None:
                         dist = self._haversine_distance(lat, lon, float(s_lat), float(s_lon))
-                        if dist < min_dist:
-                            min_dist = dist
-                            closest_store = s
-                            
-            if closest_store:
-                alias = closest_store.get("alias", "d-cesena")
-                logger.info(
-                    f"Resolved Store: '{closest_store.get('name')}' - {closest_store.get('address')} "
-                    f"[{min_dist:.2f} km] (Alias: {alias})"
-                )
-                return alias
-                
-        except Exception as e:
-            logger.error(f"Failed to query Dpiù stores API: {e}")
+                        s["distance"] = dist
+                        stores_with_distance.append(s)
+
+            # Sort stores by distance
+            stores_with_distance.sort(key=lambda x: x.get("distance", float("inf")))
+
+            # Filter stores within self.radius
+            radius_stores = [s for s in stores_with_distance if s.get("distance", 9999) <= self.radius]
             
-        logger.warning("Haversine matching failed. Defaulting to 'd-cesena'.")
-        return "d-cesena"
+            if not radius_stores:
+                logger.warning(f"No Dpiù stores found within {self.radius} km around ({lat}, {lon}). Using closest store overall.")
+                radius_stores = stores_with_distance[:5]  # Fallback to closest 5 stores
+
+            if not radius_stores:
+                logger.warning("No Dpiù stores with valid GPS coordinates. Defaulting to 'd-cesena'.")
+                return "d-cesena"
+
+            if self.choose_store and len(radius_stores) > 1:
+                print(f"\nDiscovered {len(radius_stores)} Dpiù stores within {self.radius} km:")
+                selected_store = self._prompt_selection(
+                    radius_stores,
+                    display_func=lambda s: f"{s.get('name', 'Dpiù Store')} - {s.get('address', '')}, {s.get('city', '')} [{s.get('distance', 0):.2f} km] (Alias: {s.get('alias')})",
+                    prompt="Select a store"
+                )
+            else:
+                selected_store = radius_stores[0]
+
+            alias = selected_store.get("alias", "d-cesena")
+            logger.info(
+                f"Resolved Store: '{selected_store.get('name')}' - {selected_store.get('address')} "
+                f"[{selected_store.get('distance', 0):.2f} km] (Alias: {alias})"
+            )
+            return alias
+
+        # If lat/lon are None, check for exact alias match
+        for s in stores:
+            alias = s.get("alias", "")
+            if alias.lower() == store_id.lower():
+                logger.info(f"Matched exact store alias '{alias}' for store_id '{store_id}'")
+                return alias
+
+        # Fallback to matching name or address
+        matching_stores = []
+        for s in stores:
+            name = s.get("name", "")
+            address = s.get("address", "")
+            city = s.get("city", "")
+            if store_id.lower() in name.lower() or store_id.lower() in address.lower() or store_id.lower() in city.lower():
+                matching_stores.append(s)
+
+        if matching_stores:
+            if self.choose_store and len(matching_stores) > 1:
+                print(f"\nMatched {len(matching_stores)} Dpiù stores containing '{store_id}':")
+                selected_store = self._prompt_selection(
+                    matching_stores,
+                    display_func=lambda s: f"{s.get('name', 'Dpiù Store')} - {s.get('address', '')}, {s.get('city', '')} (Alias: {s.get('alias')})",
+                    prompt="Select a store"
+                )
+            else:
+                selected_store = matching_stores[0]
+            alias = selected_store.get("alias", "d-cesena")
+            logger.info(f"Resolved partially matched store: '{selected_store.get('name')}' (Alias: {alias})")
+            return alias
+
+        logger.warning(f"No store found for reference '{store_id}'. Returning it directly as alias.")
+        return store_id
 
     def fetch_promotions(self, store_id: str) -> Any:
         """

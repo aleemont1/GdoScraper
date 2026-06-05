@@ -225,6 +225,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             
         logger.info(f"Beginning spatial ETL pipeline on flyer: {os.path.basename(file_path)}")
         parsed_offers: List[ProductOffer] = []
+        total_pages = 0
+        has_vector_text = False
         
         try:
             with pdfplumber.open(file_path) as pdf:
@@ -579,7 +581,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                 for attempt in range(max_retries):
                                     try:
                                         response = client.messages.create(
-                                            model=os.environ.get("CLAUDE_MODEL_NAME", "claude-haiku-4-5"),
+                                            model=os.environ.get("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-latest"),
                                             max_tokens=4000,
                                             temperature=0.1,
                                             system="Sei un estrattore esperto di dati visivi per volantini promozionali della GDO italiana.",
@@ -806,6 +808,22 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         except Exception as e:
             logger.error(f"Critical failure while reading PDF {os.path.basename(file_path)}: {e}")
             
+        # Self-healing hit-rate fallback check
+        if total_pages > 0:
+            yield_per_page = len(parsed_offers) / max(1, total_pages)
+            is_claude_already = (self.engine == "CLAUDE" or (has_vector_text is False and self.engine == "AUTO" and not self.use_gemini and self.use_claude))
+            
+            if (len(parsed_offers) < 3 or yield_per_page < 0.6) and not is_claude_already:
+                logger.warning(
+                    f"Yield threshold check failed: extracted {len(parsed_offers)} offers from {total_pages} pages "
+                    f"(yield: {yield_per_page:.2f} offers/page). "
+                    f"Self-healing: automatically triggering visual OCR fallback via Anthropic Claude API..."
+                )
+                claude_offers = self._parse_scanned_flyer_via_claude(file_path, store_id)
+                if claude_offers:
+                    logger.info(f"Self-healing complete. Claude API successfully extracted {len(claude_offers)} offers.")
+                    parsed_offers = claude_offers
+            
         return parsed_offers
 
     def _crop_and_save_card_image_from_cached(
@@ -956,3 +974,247 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 f.write("-" * 80 + "\n")
         except Exception as e:
             logger.error(f"Failed to write to missed products log: {e}")
+
+    def _parse_scanned_flyer_via_claude(self, file_path: str, store_id: str) -> List[ProductOffer]:
+        """
+        Executes scanned flyer OCR visual parsing using Anthropic's Claude API as a fallback.
+        """
+        import anthropic
+        import base64
+        import io
+        import hashlib
+        from PIL import Image
+        
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            logger.warning("Cannot run Claude self-healing fallback because ANTHROPIC_API_KEY is not configured.")
+            return []
+            
+        logger.info("Engaging Anthropic Claude Sonnet API for scanned flyer visual parsing fallback...")
+        client = anthropic.Anthropic()
+        
+        prompt = (
+            "Ruolo: Sei un estrattore esperto di dati visivi e OCR per i volantini promozionali della GDO (Grande Distribuzione Organizzata) italiana.\n"
+            "Task: Analizza attentamente l'immagine di questa pagina di volantino del supermercato ed estrai in modo accurato tutte le offerte commerciali.\n\n"
+            "Fasi per ciascuna offerta (ragionamento step-by-step):\n"
+            "1. Localizza visivamente una specifica scheda/sezione promozionale di prodotto.\n"
+            "2. Leggi il prezzo (es. '1,49' -> convertilo in float 1.49) ed eventuali sconti (es. '-30%'). Se il prezzo ha euro e centesimi separati o rimpiccioliti, uniscili correttamente.\n"
+            "3. Identifica il testo descrittivo del prodotto in italiano, isolando il nome (name), la marca (brand, es. 'Bio', 'Valis') e il formato/peso (weight_or_volume, es. '400 g', '1,5 L', 'confezione da 4 pezzi').\n"
+            "4. Identifica i confini della FOTO del prodotto o del suo packaging. Lascia un comodo margine di sicurezza (un bordo o 'breathing room' extra di circa il 5-8%) attorno al prodotto per evitare che le estremità, i tappi o le etichette vengano tagliati.\n"
+            "5. Calcola le coordinate normalizzate [ymin, xmin, ymax, xmax] da 0 a 1000 per l'immagine del prodotto.\n\n"
+            "Regole di validazione:\n"
+            "- Nome prodotto (name): Scrivilo in Title Case pulito (es. 'Biscotti frollini integrali'). Non includere pesi o marche qui.\n"
+            "- Marca (brand): Estrai solo il brand reale (se indicato). Se assente, lascia null.\n"
+            "- Categoria (category): Mappa il prodotto in un reparto italiano standard (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
+            "- Rettangolo (bbox): Deve inquadrare la foto dell'articolo promozionale lasciando un piccolo margine di sicurezza del 5-8% su tutti i lati nel sistema normalizzato 0-1000 (ymin alto, xmin sinistra, ymax basso, xmax destra)."
+        )
+        
+        tool_schema = {
+            "name": "extract_offers",
+            "description": "Estrae l'elenco delle offerte commerciali dal volantino promozionale.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "offers": {
+                        "type": "array",
+                        "description": "Lista di tutte le offerte trovate nella pagina del volantino.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "reasoning": {
+                                    "type": "string",
+                                    "description": "Ragionamento dettagliato step-by-step per identificare l'offerta e il suo box visivo."
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Nome del prodotto in Title Case, in italiano. Escludere peso e marca."
+                                },
+                                "brand": {
+                                    "type": "string",
+                                    "description": "Marca del prodotto (es. 'Mulino Bianco'). Lasciare null se non specificato."
+                                },
+                                "weight_or_volume": {
+                                    "type": "string",
+                                    "description": "Formato, peso o volume del prodotto (es. '500g', '1L', '6 pezzi'). Lasciare null se non specificato."
+                                },
+                                "price": {
+                                    "type": "number",
+                                    "description": "Prezzo decimale dell'offerta (es. 1.99 o 0.85)."
+                                },
+                                "original_price": {
+                                    "type": "number",
+                                    "description": "Prezzo barrato/originale se visibile, altrimenti null."
+                                },
+                                "discount_percentage": {
+                                    "type": "integer",
+                                    "description": "Percentuale di sconto (es. 30 o 50). Lasciare null se non indicata."
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Categoria merceologica in italiano (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona')."
+                                },
+                                "bbox": {
+                                    "type": "array",
+                                    "description": "Rettangolo di delimitazione del prodotto [ymin, xmin, ymax, xmax] normalizzato da 0 a 1000.",
+                                    "items": {
+                                        "type": "integer"
+                                    }
+                                }
+                            },
+                            "required": ["reasoning", "name", "price", "bbox"]
+                        }
+                    }
+                },
+                "required": ["offers"]
+            }
+        }
+        
+        claude_offers: List[ProductOffer] = []
+        
+        try:
+            with pdfplumber.open(file_path) as pdf:
+                total_pages = len(pdf.pages)
+                for page_idx in range(total_pages):
+                    page = pdf.pages[page_idx]
+                    logger.info(f"[Self-Healing] Processing Page {page_idx + 1}/{total_pages} via Claude...")
+                    
+                    try:
+                        pil_img = page.to_image(resolution=120).original
+                    except Exception as render_err:
+                        logger.error(f"Failed to render page {page_idx + 1} during fallback: {render_err}")
+                        continue
+                        
+                    buffered = io.BytesIO()
+                    pil_img.save(buffered, format="PNG")
+                    img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+                    
+                    try:
+                        response = None
+                        max_retries = 3
+                        retry_backoff = 3
+                        for attempt in range(max_retries):
+                            try:
+                                response = client.messages.create(
+                                    model=os.environ.get("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-latest"),
+                                    max_tokens=4000,
+                                    temperature=0.1,
+                                    system="Sei un estrattore esperto di dati visivi per volantini promozionali della GDO italiana.",
+                                    messages=[
+                                        {
+                                            "role": "user",
+                                            "content": [
+                                                {
+                                                    "type": "image",
+                                                    "source": {
+                                                        "type": "base64",
+                                                        "media_type": "image/png",
+                                                        "data": img_base64
+                                                    }
+                                                },
+                                                {
+                                                    "type": "text",
+                                                    "text": prompt
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    tools=[tool_schema],
+                                    tool_choice={"type": "tool", "name": "extract_offers"}
+                                )
+                                break
+                            except Exception as api_err:
+                                if attempt == max_retries - 1:
+                                    raise api_err
+                                logger.warning(
+                                    f"Claude API call failed (attempt {attempt + 1}/{max_retries}): {api_err}. "
+                                    f"Retrying in {retry_backoff} seconds..."
+                                )
+                                time.sleep(retry_backoff)
+                                retry_backoff *= 2
+                                
+                        if not response:
+                            continue
+                            
+                        tool_use = next(block for block in response.content if block.type == "tool_use")
+                        offers = tool_use.input.get("offers", [])
+                        logger.info(f"[Self-Healing] Page {page_idx + 1}: Extracted {len(offers)} offers from Claude.")
+                        
+                        for o in offers:
+                            name = o.get("name")
+                            price = o.get("price")
+                            if not name or price is None:
+                                continue
+                                
+                            brand = o.get("brand")
+                            weight = o.get("weight_or_volume")
+                            orig_price = o.get("original_price")
+                            discount = o.get("discount_percentage")
+                            bbox = o.get("bbox")
+                            category = o.get("category")
+                            
+                            payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
+                            offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
+                            
+                            image_url = None
+                            from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
+                            image_url = get_standard_image(name)
+                            if not image_url:
+                                image_url = find_reusable_image(self._supermarket_name, name)
+                                
+                            if not image_url and bbox and len(bbox) == 4:
+                                ymin, xmin, ymax, xmax = bbox
+                                w_px, h_px = pil_img.size
+                                
+                                px_x0 = int((xmin / 1000.0) * w_px)
+                                px_y0 = int((ymin / 1000.0) * h_px)
+                                px_x1 = int((xmax / 1000.0) * w_px)
+                                px_y1 = int((ymax / 1000.0) * h_px)
+                                
+                                box_w = px_x1 - px_x0
+                                box_h = px_y1 - px_y0
+                                pad_x = int(box_w * 0.06)
+                                pad_y = int(box_h * 0.06)
+                                
+                                crop_box = (
+                                    max(0, px_x0 - pad_x),
+                                    max(0, px_y0 - pad_y),
+                                    min(w_px, px_x1 + pad_x),
+                                    min(h_px, px_y1 + pad_y)
+                                )
+                                
+                                os.makedirs("storage/images", exist_ok=True)
+                                file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
+                                img_path = os.path.join("storage/images", file_name)
+                                
+                                try:
+                                    cropped = pil_img.crop(crop_box)
+                                    cropped = post_process_image_background(cropped)
+                                    cropped.save(img_path, "PNG")
+                                    image_url = f"/storage/images/{file_name}"
+                                except Exception as crop_err:
+                                    logger.debug(f"Pillow crop error: {crop_err}")
+                                    
+                            offer = ProductOffer(
+                                offer_id=offer_id,
+                                supermarket=self._supermarket_name,
+                                store_id=store_id,
+                                name=name.capitalize(),
+                                brand=brand,
+                                weight_or_volume=weight,
+                                price=price,
+                                original_price=orig_price,
+                                discount_percentage=discount,
+                                price_per_unit=None,
+                                ean_code=None,
+                                image_url=image_url,
+                                category=category,
+                                promo_type="STANDARD",
+                                validity_string=None
+                            )
+                            claude_offers.append(offer)
+                    except Exception as page_api_err:
+                        logger.error(f"[Self-Healing] Claude page parsing failed: {page_api_err}")
+                        continue
+        except Exception as e:
+            logger.error(f"[Self-Healing] Fallback execution failed: {e}")
+            
+        return claude_offers

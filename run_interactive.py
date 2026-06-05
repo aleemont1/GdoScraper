@@ -216,24 +216,40 @@ def scrape_ins_menu():
 def scrape_dpiu_menu():
     print(f"\n{GREEN}{BOLD}=== DPIÙ SCRAPER SETTINGS ==={RESET}")
     print("Select Store Location Targeting Mode:")
-    print(f"  {CYAN}1{RESET}) Use GPS Coordinates (Haversine Distance Matching)")
-    print(f"  {CYAN}2{RESET}) Use Direct Store Alias (e.g. d-cesena)")
+    print(f"  {CYAN}1{RESET}) Use City Name (Automatic Geocoding & Store Discovery)")
+    print(f"  {CYAN}2{RESET}) Use GPS Coordinates (Store Discovery)")
+    print(f"  {CYAN}3{RESET}) Use Direct Store Alias (e.g. d-cesena)")
     
-    mode = input("Select mode [1-2, default: 1]: ").strip()
+    mode = input("Select mode [1-3, default: 1]: ").strip()
     if mode == "2":
+        store_id = input(f"Enter GPS Coordinates [default: {CYAN}44.1396438,12.2464292{RESET} (Cesena)]: ").strip()
+        if not store_id:
+            store_id = "44.1396438,12.2464292"
+    elif mode == "3":
         store_id = input(f"Enter Dpiù Store Alias [default: {CYAN}d-cesena{RESET}]: ").strip()
         if not store_id:
             store_id = "d-cesena"
     else:
-        store_id = input(f"Enter GPS Coordinates [default: {CYAN}44.1396438,12.2464292{RESET} (Cesena)]: ").strip()
+        store_id = input(f"Enter City Name [default: {CYAN}Cesena{RESET}]: ").strip()
         if not store_id:
-            store_id = "44.1396438,12.2464292"
+            store_id = "Cesena"
 
     cmd = [
         PYTHON_EXE, "main.py",
         "--supermarket", "dpiu",
         "--store-id", store_id
     ]
+
+    # Ask if coordinates/city mode was selected
+    if mode in ("", "1", "2"):
+        radius = input(f"Enter Search Radius in km [default: {CYAN}15{RESET}]: ").strip()
+        if not radius:
+            radius = "15"
+        cmd.extend(["--radius", radius])
+
+        choose_store = input(f"Enable Interactive Store List Selector? [y/N]: ").strip().lower()
+        if choose_store == "y":
+            cmd.append("--choose-store")
 
     # Optional limits
     max_flyers = input(f"Limit max flyer downloads? [Enter for no limit, or integer]: ").strip()
@@ -244,6 +260,58 @@ def scrape_dpiu_menu():
     if db_path:
         cmd.extend(["--db-path", db_path])
         
+    run_command(cmd, capture_time=True)
+
+def scrape_manual_menu():
+    print(f"\n{GREEN}{BOLD}=== MANUAL FLYER SCRAPER SETTINGS ==={RESET}")
+    print("Scrapes a manual PDF flyer located in downloads/uploaded/ or specified by file path.")
+    
+    file_ref = input("Enter PDF file name/path (e.g. flyer.pdf): ").strip()
+    if not file_ref:
+        print(f"{RED}No file reference provided. Returning to menu.{RESET}")
+        time.sleep(1.5)
+        return
+
+    supermarket_name = input("Enter supermarket name [default: MANUAL]: ").strip()
+    if not supermarket_name:
+        supermarket_name = "MANUAL"
+
+    store_id = input("Enter store ID for tagging [default: MANUAL_STORE]: ").strip()
+    if not store_id:
+        store_id = "MANUAL_STORE"
+
+    cmd = [
+        PYTHON_EXE, "main.py",
+        "--supermarket", "manual",
+        "--store-id", file_ref,
+        "--custom-supermarket", supermarket_name
+    ]
+
+    # Choice of Parsing / OCR Engine
+    print("\nSelect Parsing/OCR Engine:")
+    print(f"  {CYAN}1{RESET}) Auto-Detect (Offline OCR / Vector Grid)")
+    print(f"  {CYAN}2{RESET}) Offline Tesseract OCR (Scanned Fallback)")
+    print(f"  {CYAN}3{RESET}) Gemini 2.5 Flash API (Structured Multimodal)")
+    print(f"  {CYAN}4{RESET}) Claude Haiku 4.5 API (Structured Multimodal)")
+    engine_choice = input("Select engine [1-4, default: 1]: ").strip()
+    if engine_choice == "2":
+        cmd.extend(["--engine", "TESSERACT"])
+    elif engine_choice == "3":
+        cmd.extend(["--engine", "GEMINI"])
+    elif engine_choice == "4":
+        cmd.extend(["--engine", "CLAUDE"])
+    else:
+        cmd.extend(["--engine", "AUTO"])
+
+    # Multiprocessing parallel parsing choice
+    parallel = input(f"Enable multi-process parallel flyer parsing? [y/N]: ").strip().lower()
+    if parallel == "y":
+        cmd.append("--parallel")
+
+    db_path = input(f"Enter SQLite DB path [default: {CYAN}storage/promotions.db{RESET}]: ").strip()
+    if db_path:
+        cmd.extend(["--db-path", db_path])
+
     run_command(cmd, capture_time=True)
 
 def launch_dashboard():
@@ -410,7 +478,8 @@ def dev_tools_menu():
             cmd = [
                 PYTHON_EXE, "main.py",
                 "--supermarket", "dpiu",
-                "--store-id", "44.1396438,12.2464292"
+                "--store-id", "44.1396438,12.2464292",
+                "--radius", "15"
             ]
             run_command(cmd, capture_time=True)
             
@@ -429,13 +498,14 @@ def main_menu():
         print(f"  [{GREEN}2{RESET}] {BOLD}CONAD{RESET}: Scrape PDF flyers (REST Discovery/Download/Parallel)")
         print(f"  [{GREEN}3{RESET}] {BOLD}IN'S{RESET}: Scrape PDF flyers (BeautifulSoup Crawler/Dual-Engine OCR)")
         print(f"  [{GREEN}4{RESET}] {BOLD}DPIÙ{RESET}: Scrape API promotions (REST Dynamic OAuth2)")
-        print(f"  [{GREEN}5{RESET}] {BOLD}DASHBOARD{RESET}: Launch visual verification server SPA")
-        print(f"  [{GREEN}6{RESET}] {BOLD}STATS{RESET}: Display SQLite database analytics")
-        print(f"  [{RED}7{RESET}] {BOLD}DEV TOOLS{RESET}: Developer utilities & benchmark presets")
-        print(f"  [{RED}8{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
+        print(f"  [{GREEN}5{RESET}] {BOLD}MANUAL{RESET}: Scrape a manually uploaded PDF flyer")
+        print(f"  [{GREEN}6{RESET}] {BOLD}DASHBOARD{RESET}: Launch visual verification server SPA")
+        print(f"  [{GREEN}7{RESET}] {BOLD}STATS{RESET}: Display SQLite database analytics")
+        print(f"  [{RED}8{RESET}] {BOLD}DEV TOOLS{RESET}: Developer utilities & benchmark presets")
+        print(f"  [{RED}9{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
         print()
         
-        choice = input("Select an option [1-8]: ").strip()
+        choice = input("Select an option [1-9]: ").strip()
         if choice == "1":
             scrape_coop_menu()
         elif choice == "2":
@@ -445,12 +515,14 @@ def main_menu():
         elif choice == "4":
             scrape_dpiu_menu()
         elif choice == "5":
-            launch_dashboard()
+            scrape_manual_menu()
         elif choice == "6":
-            display_db_stats()
+            launch_dashboard()
         elif choice == "7":
-            dev_tools_menu()
+            display_db_stats()
         elif choice == "8":
+            dev_tools_menu()
+        elif choice == "9":
             print(f"\n{CYAN}Thank you for using GDO Scraper. Goodbye!{RESET}\n")
             sys.exit(0)
         else:

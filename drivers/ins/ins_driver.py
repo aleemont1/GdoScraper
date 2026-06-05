@@ -1,6 +1,7 @@
 import os
 import re
 import requests
+import json
 from bs4 import BeautifulSoup
 from typing import List, Any, Optional
 
@@ -23,9 +24,11 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         self,
         max_flyers: Optional[int] = None,
         parallel: bool = False,
-        use_gemini: bool = False
+        use_gemini: bool = False,
+        use_claude: bool = False,
+        engine: str = "AUTO"
     ) -> None:
-        super().__init__(parallel=parallel, use_gemini=use_gemini)
+        super().__init__(parallel=parallel, use_gemini=use_gemini, use_claude=use_claude, engine=engine)
         self._ins_segmenter = InsLayoutSegmenter()
         self._ins_parser = InsOfferParser()
         self.max_flyers = max_flyers
@@ -48,51 +51,15 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
 
     def _resolve_coordinates_to_city(self, store_id: str) -> str:
         """
-        Geocodes latitude/longitude coordinates to a city name using OpenStreetMap (Nominatim)
-        and BigDataCloud as a keyless public fallback.
+        Geocodes latitude/longitude coordinates to a city name using caching and parent's geocoder.
         """
-        coords_match = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*$", store_id)
+        coords_match = self.COORDINATES_REGEX.match(store_id)
         if not coords_match:
             return store_id  # Not coordinates, treat as direct text
 
-        lat = coords_match.group(1)
-        lon = coords_match.group(2)
-
-        # 1. Try OpenStreetMap Nominatim first
-        osm_url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
-        headers = {
-            "User-Agent": "SupermarketScraper/1.0 (aleemont@example.com)"
-        }
-        logger.info(f"Geocoding coordinates ({lat}, {lon}) via OpenStreetMap Nominatim...")
-        try:
-            res = requests.get(osm_url, headers=headers, timeout=8)
-            if res.status_code == 200:
-                data = res.json()
-                addr = data.get("address", {})
-                city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("suburb")
-                if city:
-                    logger.info(f"Resolved to city: '{city}' via Nominatim")
-                    return city
-            logger.warning(f"OSM Nominatim returned status code {res.status_code}. Trying keyless BigDataCloud fallback...")
-        except Exception as e:
-            logger.warning(f"OSM Nominatim query failed: {e}. Trying keyless BigDataCloud fallback...")
-
-        # 2. Try BigDataCloud reverse geocode client as fallback
-        bdc_url = f"https://api.bigdatacloud.net/data/reverse-geocode-client?latitude={lat}&longitude={lon}&localityLanguage=it"
-        try:
-            res = requests.get(bdc_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
-            res.raise_for_status()
-            data = res.json()
-            city = data.get("city") or data.get("locality") or data.get("principalSubdivision")
-            if city:
-                logger.info(f"Resolved to city: '{city}' via BigDataCloud")
-                return city
-        except Exception as e:
-            logger.error(f"BigDataCloud geocoding fallback failed: {e}")
-
-        # Final default fallback if everything fails
-        logger.warning("All geocoding lookups failed. Defaulting to 'Cesena' region.")
-        return "Cesena"
+        lat = float(coords_match.group(1))
+        lon = float(coords_match.group(2))
+        return self._reverse_geocode(lat, lon)
 
     def download_flyers(self, store_id: str) -> List[str]:
         """

@@ -1,72 +1,222 @@
 import re
 import requests
 from typing import Dict, Any, List, Optional, Tuple
-from core.base_driver import AbstractSupermarketDriver
+from core.base_driver import AbstractApiSupermarketDriver
 from core.models import ProductOffer
 from utils.logger import setup_logger
 
 logger = setup_logger("CoopDriver")
 
-class CoopSupermarketDriver(AbstractSupermarketDriver):
+class CoopSupermarketDriver(AbstractApiSupermarketDriver):
     """
     Supermarket scraper driver for Coop Alleanza 3.0.
     Fetches dynamic promotional data via REST API endpoints and parses
     Server-Driven UI layout nodes into normalized domain models.
     """
 
-    def __init__(self, base_url: str = "https://svdgt.coopalleanza3-0.it") -> None:
+    def __init__(
+        self,
+        base_url: str = "https://svdgt.coopalleanza3-0.it",
+        radius: int = 15,
+        choose_store: bool = False,
+        choose_flyer: bool = False
+    ) -> None:
+        super().__init__(radius=radius, choose_store=choose_store, choose_flyer=choose_flyer)
         self._base_url = base_url.rstrip("/")
-        self._session = requests.Session()
+        self._resolved_store_code: Optional[str] = None
         
-        # Configure standard headers to simulate a real browser request
+        # Override referer & origin specific to Coop
         self._session.headers.update({
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            ),
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Origin": "https://www.coopalleanza3-0.it",
-            "Referer": "https://www.coopalleanza3-0.it/",
+            "Origin": "https://www.coop.it",
+            "Referer": "https://www.coop.it/ricerca-negozi"
         })
         
         # Compiled Regex patterns
         self._price_regex = re.compile(r"(\d+,\d{2})\s*€")
         self._discount_regex = re.compile(r"(\d+)\s*%")
 
+    def _fetch_csrf_token(self) -> None:
+        """Attempts to retrieve a session CSRF token from coop.it."""
+        try:
+            res = self._session.get("https://www.coop.it/session/token", timeout=10)
+            if res.status_code == 200:
+                token = res.text.strip()
+                if token:
+                    self._session.headers.update({"X-Csrf-Token": token})
+                    logger.debug("Successfully retrieved CSRF token.")
+        except Exception as e:
+            logger.warning(f"Failed to fetch session CSRF token: {e}")
+
+
+
+    def _search_stores_by_coords(self, lat: float, lon: float) -> List[Dict[str, Any]]:
+        """Queries the Coop store search API using coordinates."""
+        search_url = "https://www.coop.it/api/esb/storelocator/searchStores?_format=form"
+        payload = {"coords": {"latitude": lat, "longitude": lon}, "storeName": None}
+        try:
+            res = self._session.post(search_url, json=payload, timeout=12)
+            res.raise_for_status()
+            data = res.json()
+            return data.get("payload", {}).get("stores", [])
+        except Exception as e:
+            logger.error(f"Failed to query Coop store locator search stores API: {e}")
+        return []
+
+    def _resolve_store_details_by_db_id(self, db_id: int) -> Tuple[Optional[str], str]:
+        """Resolves the store detail details via getStoreDetail API, returning (store_code, name)."""
+        detail_url = "https://www.coop.it/api/esb/storelocator/getStoreDetail?_format=form"
+        payload = {"storeId": [db_id]}
+        try:
+            res = self._session.post(detail_url, json=payload, timeout=12)
+            res.raise_for_status()
+            data = res.json()
+            stores = data.get("payload", {}).get("stores", [])
+            if stores:
+                store = stores[0]
+                code = store.get("codicePDVCooperativa")
+                name = store.get("name", "Coop Store")
+                # format as 4-digit store code if numeric
+                if code is not None:
+                    return str(code).zfill(4), name
+                return None, name
+        except Exception as e:
+            logger.error(f"Failed to resolve Coop store details for ID {db_id}: {e}")
+        return None, "Coop Store"
+
+    def _fetch_leaflets_for_store(self, store_code: str) -> List[Dict[str, Any]]:
+        """Retrieves active flyer leaflet metadata for the given store code."""
+        leaflets_url = f"{self._base_url}/apim/leaflets/{store_code}"
+        try:
+            res = self._session.get(leaflets_url, timeout=12)
+            res.raise_for_status()
+            data = res.json()
+            return data.get("leaflets", [])
+        except Exception as e:
+            logger.error(f"Failed to retrieve flyer leaflets list from Coop API: {e}")
+        return []
+
+    def _fetch_promos_for_leaflet(self, leaflet_id: str, store_code: str) -> List[Dict[str, Any]]:
+        """Retrieves promotion items for the specified leaflet ID and store code."""
+        promos_url = f"{self._base_url}/apim/{leaflet_id}/{store_code}/promos"
+        try:
+            res = self._session.get(promos_url, timeout=15)
+            res.raise_for_status()
+            data = res.json()
+            return data.get("promos", [])
+        except Exception as e:
+            logger.error(f"Failed to retrieve promotions list from Coop API: {e}")
+        return []
+
     def fetch_promotions(self, store_id: str) -> Any:
         """
-        Fetches promotional offers for the given store.
-        Note: The Coop API returns the entire catalog of promotions in a single request.
-        
-        Args:
-            store_id: The Coop store identifier (e.g., '0315').
-            
-        Returns:
-            A list of raw promotional item dictionaries.
+        Interactively resolves Coop store ID (from coords, city name, or direct ID),
+        discovers available flyers, prompts for flyer selection if requested,
+        and retrieves promotional data via APIs.
         """
-        endpoint = f"{self._base_url}/apim/P2611IS/{store_id}/promos"
-        logger.info(f"Fetching promotions from Coop API for store: {store_id}")
+        self._fetch_csrf_token()
         
-        try:
-            # Query the endpoint directly; it returns the whole catalog
-            response = self._session.get(endpoint, timeout=15)
+        store_code = None
+        store_name_resolved = "Unknown Coop Store"
+        
+        # Check coordinates first
+        coords_match = self.COORDINATES_REGEX.match(store_id)
+        
+        lat, lon = None, None
+        
+        if coords_match:
+            lat = float(coords_match.group(1))
+            lon = float(coords_match.group(2))
+        elif store_id.isdigit() and len(store_id) <= 4:
+            store_code = store_id.zfill(4)
+            logger.info(f"Using direct Coop store code: '{store_code}'")
+        elif store_id.isdigit() and len(store_id) > 4:
+            coop_db_id = int(store_id)
+            logger.info(f"Using direct Coop database store ID: {coop_db_id}")
+            store_code, store_name_resolved = self._resolve_store_details_by_db_id(coop_db_id)
+        else:
+            coords = self._geocode_location(store_id)
+            if coords:
+                lat, lon = coords
+            else:
+                logger.error(f"Could not resolve city or location '{store_id}' to coordinates.")
+                return []
+                
+        # Search stores by coordinates if coordinates were resolved or passed
+        if lat is not None and lon is not None:
+            stores = self._search_stores_by_coords(lat, lon)
+            if not stores:
+                logger.error(f"No Coop stores found within {self.radius}km around ({lat}, {lon})")
+                return []
+                
+            selected_store = None
+            if self.choose_store and len(stores) > 1:
+                print(f"\nDiscovered {len(stores)} Coop stores within {self.radius} km:")
+                selected_store = self._prompt_selection(
+                    stores,
+                    display_func=lambda s: f"{s.get('name')} - {s.get('address')}, {s.get('city')} [{s.get('distance')} m]",
+                    prompt="Select a store"
+                )
+            else:
+                selected_store = stores[0]
+                
+            coop_db_id = selected_store.get("id")
+            logger.info(f"Target Store Resolved: {selected_store.get('name')} - {selected_store.get('address')} (Distance: {selected_store.get('distance')} m)")
+            store_code, store_name_resolved = self._resolve_store_details_by_db_id(coop_db_id)
             
-            # Check for HTTP errors (e.g. 404 store not found, or 401/403 blocks)
-            response.raise_for_status()
-            data = response.json()
+        if not store_code:
+            logger.error("Could not resolve a valid Coop store code.")
+            return []
             
-            promos_list = data.get("promos", [])
-            logger.info(f"Successfully retrieved {len(promos_list)} raw promotional items.")
-            return promos_list
+        # Cache canonical store code
+        self._resolved_store_code = store_code
+        
+        # 2. Retrieve active leaflets
+        leaflets = self._fetch_leaflets_for_store(store_code)
+        if not leaflets:
+            logger.warning(f"No promotional leaflets found for store: {store_name_resolved} (code: {store_code})")
+            return []
             
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network request failed for store {store_id}: {e}")
-        except ValueError as e:
-            logger.error(f"Failed to parse JSON response for store {store_id}: {e}")
+        # 3. Filter/Choose leaflets
+        selected_leaflets = []
+        if self.choose_flyer and len(leaflets) > 1:
+            print(f"\nAvailable promotional flyers for {store_name_resolved} ({store_code}):")
+            for idx, lf in enumerate(leaflets):
+                featured_str = " (Featured)" if lf.get("featured") else ""
+                print(f"  {idx+1}) {lf.get('titolo')}{featured_str} [Validity: {lf.get('pretty_name_validita')}] (ID: {lf.get('id')})")
             
-        return []
+            while True:
+                try:
+                    user_input = input(f"Select flyer(s) to scrape (comma-separated indices, e.g. 1,3 or 'all', default: all): ").strip()
+                    if not user_input or user_input.lower() == "all":
+                        selected_leaflets = leaflets
+                        break
+                    
+                    indices = [int(i.strip()) for i in user_input.split(",") if i.strip().isdigit()]
+                    valid_indices = [i - 1 for i in indices if 0 <= i - 1 < len(leaflets)]
+                    if valid_indices:
+                        selected_leaflets = [leaflets[i] for i in valid_indices]
+                        break
+                    else:
+                        print("Invalid selection. Please try again.")
+                except ValueError:
+                    print("Invalid input format. Use numbers separated by commas.")
+                except (KeyboardInterrupt, EOFError):
+                    print("\nSelection interrupted. Defaulting to all flyers.")
+                    selected_leaflets = leaflets
+                    break
+        else:
+            selected_leaflets = leaflets
+            
+        # 4. Fetch promos for each selected leaflet
+        all_promos = []
+        for lf in selected_leaflets:
+            leaf_id = lf.get("id")
+            leaf_title = lf.get("titolo")
+            logger.info(f"Fetching promos for flyer: '{leaf_title}' (ID: {leaf_id})")
+            promos = self._fetch_promos_for_leaflet(leaf_id, store_code)
+            all_promos.extend(promos)
+            
+        return all_promos
 
     def parse_promotions(self, raw_data: Any, store_id: str) -> List[ProductOffer]:
         """
@@ -100,6 +250,7 @@ class CoopSupermarketDriver(AbstractSupermarketDriver):
         """
         Parses a single promotion item dictionary.
         """
+        actual_store_id = getattr(self, "_resolved_store_code", None) or store_id
         offer_id = item.get("id")
         if not offer_id:
             logger.warning("Skipping promo item missing unique ID.")
@@ -157,7 +308,7 @@ class CoopSupermarketDriver(AbstractSupermarketDriver):
         return ProductOffer(
             offer_id=offer_id,
             supermarket="COOP",
-            store_id=store_id,
+            store_id=actual_store_id,
             name=name,
             brand=brand,
             weight_or_volume=weight,

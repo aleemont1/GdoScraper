@@ -18,10 +18,12 @@ def initialize_db(db_path: str) -> None:
     if dir_name:
         os.makedirs(dir_name, exist_ok=True)
         
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     
     try:
+        # Enable WAL mode
+        cursor.execute("PRAGMA journal_mode=WAL;")
         # Create promotions table with a compound primary key for idempotency
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS promotions (
@@ -74,7 +76,7 @@ def save_offers(db_path: str, offers: List[ProductOffer]) -> int:
         logger.info("No offers to save.")
         return 0
         
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30.0)
     cursor = conn.cursor()
     
     upsert_query = """

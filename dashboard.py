@@ -590,13 +590,15 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 <div class="input-group">
                     <label for="uploadEngine">Parsing Engine</label>
                     <select id="uploadEngine">
-                        <option value="false">Auto-Detect (Offline OCR / Vector)</option>
-                        <option value="true">Gemini 2.5 Flash API (Structured Visual)</option>
+                        <option value="AUTO">Auto-Detect (Offline OCR / Vector Grid)</option>
+                        <option value="TESSERACT">Offline Tesseract OCR (Scanned Fallback)</option>
+                        <option value="GEMINI">Gemini 2.5 Flash API (Structured Visual)</option>
+                        <option value="CLAUDE">Claude Haiku 4.5 API (Structured Visual)</option>
                     </select>
                 </div>
                 <div>
                     <button class="btn" type="submit" style="width: 100%; height: 42px; display: flex; justify-content: center; align-items: center; gap: 8px;">
-                        <span>🚀 Parse & Scrape Flyer</span>
+                        <span>Parse & Scrape Flyer</span>
                     </button>
                 </div>
             </form>
@@ -775,6 +777,41 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         let sortField = 'extracted_at';
         let sortAsc = false;
 
+        // Dynamic case-insensitive Supermarket badge generator with deterministic color fallback
+        function getSupermarketBadge(supermarket) {
+            if (!supermarket) return `<span class="badge badge-manual">MANUAL</span>`;
+            
+            const upperName = supermarket.toUpperCase().trim();
+            let badgeClass = 'badge-manual';
+            let displayName = supermarket.toUpperCase().trim();
+            
+            if (upperName === 'COOP') {
+                badgeClass = 'badge-coop';
+                displayName = 'COOP';
+            } else if (upperName === 'CONAD') {
+                badgeClass = 'badge-conad';
+                displayName = 'CONAD';
+            } else if (upperName === 'INS' || upperName === "IN'S") {
+                badgeClass = 'badge-ins';
+                displayName = "IN'S";
+            } else if (upperName === 'DPIU' || upperName === 'DPIÙ') {
+                badgeClass = 'badge-dpiu';
+                displayName = 'DPIÙ';
+            } else {
+                // Determine a unique hash color deterministically from the supermarket name
+                let hash = 0;
+                for (let i = 0; i < upperName.length; i++) {
+                    hash = upperName.charCodeAt(i) + ((hash << 5) - hash);
+                }
+                const hue = Math.abs(hash % 360);
+                
+                // Return dynamic glassmorphic badge styled inline
+                return `<span class="badge" style="background-color: hsla(${hue}, 70%, 50%, 0.12); color: hsl(${hue}, 85%, 65%); border: 1px solid hsla(${hue}, 70%, 50%, 0.25); text-transform: uppercase;">${displayName}</span>`;
+            }
+            
+            return `<span class="badge ${badgeClass}">${displayName}</span>`;
+        }
+
         // Document Event Listeners
         document.addEventListener('click', () => {
             document.getElementById('columnDropdown').style.display = 'none';
@@ -810,6 +847,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 allOffers = data;
                 filteredOffers = [...allOffers];
                 
+                populateSupermarketFilterOptions();
                 calculateKPIs();
                 applyFilterAndRender();
                 
@@ -818,6 +856,38 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 tableBody.innerHTML = '';
                 errorDiv.style.display = 'block';
                 errorDiv.innerHTML = `⚠️ Failed to query SQLite database. Make sure main.py has been run and storage/promotions.db exists.<br><small>${err.message}</small>`;
+            }
+        }
+
+        // Dynamically populates the supermarket filter dropdown based on active DB records
+        function populateSupermarketFilterOptions() {
+            const select = document.getElementById('supermarketFilter');
+            if (!select) return;
+            const currentValue = select.value;
+            
+            const uniqueMarketsSet = new Set(allOffers.map(o => o.supermarket));
+            const uniqueMarkets = Array.from(uniqueMarketsSet).sort();
+            
+            select.innerHTML = '<option value="ALL">All Supermarkets</option>';
+            
+            uniqueMarkets.forEach(market => {
+                let displayName = market;
+                if (market === 'COOP') displayName = 'Coop';
+                else if (market === 'CONAD') displayName = 'Conad';
+                else if (market === 'INS') displayName = "IN's Mercato";
+                else if (market === 'DPIU') displayName = 'Dpiù Discount';
+                
+                const opt = document.createElement('option');
+                opt.value = market;
+                opt.textContent = displayName;
+                select.appendChild(opt);
+            });
+            
+            // Restore selection state
+            if (Array.from(select.options).some(opt => opt.value === currentValue)) {
+                select.value = currentValue;
+            } else {
+                select.value = 'ALL';
             }
         }
 
@@ -935,29 +1005,12 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 
                 const mImgPercent = mTotal > 0 ? ((mImagesCount / mTotal) * 100).toFixed(1) : 0;
                 
-                // Get display properties for the supermarket
-                let badgeClass = 'badge-manual';
-                let displayName = market;
-                if (market === 'COOP') {
-                    badgeClass = 'badge-coop';
-                    displayName = 'COOP';
-                } else if (market === 'CONAD') {
-                    badgeClass = 'badge-conad';
-                    displayName = 'CONAD';
-                } else if (market === 'INS') {
-                    badgeClass = 'badge-ins';
-                    displayName = "IN'S";
-                } else if (market === 'DPIU') {
-                    badgeClass = 'badge-dpiu';
-                    displayName = 'DPIÙ';
-                }
+                const superBadgeHtml = getSupermarketBadge(market);
                 
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td style="padding: 12px 8px; vertical-align: middle;">
-                        <span class="badge ${badgeClass}">
-                            ${displayName}
-                        </span>
+                        ${superBadgeHtml}
                     </td>
                     <td style="padding: 12px 8px; text-align: center; font-weight: bold; color: #ffffff;">${mTotal}</td>
                     <td style="padding: 12px 8px; text-align: right; color: var(--accent-blue); font-weight: 500;">€ ${mAvgPrice.toFixed(2)}</td>
@@ -1054,13 +1107,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
                 const tr = document.createElement('tr');
                 
                 // Supermarket Badge
-                const superBadge = offer.supermarket === 'COOP' 
-                    ? `<span class="badge badge-coop">Coop</span>` 
-                    : offer.supermarket === 'CONAD'
-                    ? `<span class="badge badge-conad">Conad</span>`
-                    : offer.supermarket === 'INS'
-                    ? `<span class="badge badge-ins">IN's</span>`
-                    : `<span class="badge badge-dpiu">Dpiù</span>`;
+                const superBadge = getSupermarketBadge(offer.supermarket);
                     
                 // Visual Preview Card Crop
                 let previewHtml = `<span style="color: var(--text-secondary); font-size: 0.8rem;">-</span>`;
@@ -1185,7 +1232,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
             formData.append("file", file);
             formData.append("supermarket", supermarketInput.value);
             formData.append("store_id", storeIdInput.value);
-            formData.append("use_gemini", engineInput.value);
+            formData.append("engine", engineInput.value);
+            formData.append("use_gemini", engineInput.value === "GEMINI" ? "true" : "false");
+            formData.append("use_claude", engineInput.value === "CLAUDE" ? "true" : "false");
             
             statusDiv.style.display = 'block';
             statusDiv.style.backgroundColor = 'rgba(59, 130, 246, 0.15)';
@@ -1263,7 +1312,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 return
                 
             try:
-                conn = sqlite3.connect(DB_PATH)
+                conn = sqlite3.connect(DB_PATH, timeout=30.0)
                 # Enable dictionary key lookup
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
@@ -1288,20 +1337,26 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                     
             self.wfile.write(json.dumps(response_data).encode("utf-8"))
             
-        # Route: Serve static product card cropped images from the local storage
-        elif self.path.startswith("/storage/images/"):
-            file_rel_path = self.path.lstrip("/")
-            if os.path.exists(file_rel_path) and os.path.isfile(file_rel_path):
+        # Route: Serve static product card cropped images and standard images from local storage
+        elif self.path.startswith("/storage/"):
+            import urllib.parse
+            decoded_path = urllib.parse.unquote(self.path)
+            file_rel_path = decoded_path.lstrip("/")
+            
+            storage_dir_abs = os.path.abspath("storage")
+            requested_path_abs = os.path.abspath(file_rel_path)
+            
+            if (requested_path_abs == storage_dir_abs or requested_path_abs.startswith(storage_dir_abs + os.sep)) and os.path.exists(requested_path_abs) and os.path.isfile(requested_path_abs):
                 self.send_response(200)
-                if file_rel_path.endswith(".png"):
+                if requested_path_abs.endswith(".png"):
                     self.send_header("Content-type", "image/png")
-                elif file_rel_path.endswith((".jpg", ".jpeg")):
+                elif requested_path_abs.endswith((".jpg", ".jpeg")):
                     self.send_header("Content-type", "image/jpeg")
                 else:
                     self.send_header("Content-type", "application/octet-stream")
                 self.end_headers()
                 
-                with open(file_rel_path, "rb") as f:
+                with open(requested_path_abs, "rb") as f:
                     self.wfile.write(f.read())
             else:
                 self.send_response(404)
@@ -1348,7 +1403,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 
                 supermarket = "MANUAL"
                 store_id = "MANUAL_STORE"
-                use_gemini = False
+                engine = "AUTO"
                 pdf_content = None
                 pdf_filename = "manual_flyer.pdf"
                 
@@ -1359,8 +1414,16 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                             supermarket = part.get_payload(decode=True).decode().strip()
                         elif name == "store_id":
                             store_id = part.get_payload(decode=True).decode().strip()
+                        elif name == "engine":
+                            engine = part.get_payload(decode=True).decode().strip().upper()
                         elif name == "use_gemini":
-                            use_gemini = part.get_payload(decode=True).decode().strip().lower() == "true"
+                            val = part.get_payload(decode=True).decode().strip().lower()
+                            if val == "true":
+                                engine = "GEMINI"
+                        elif name == "use_claude":
+                            val = part.get_payload(decode=True).decode().strip().lower()
+                            if val == "true":
+                                engine = "CLAUDE"
                         elif name == "file":
                             pdf_filename = part.get_filename() or "manual_flyer.pdf"
                             pdf_content = part.get_payload(decode=True)
@@ -1385,7 +1448,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 with open(file_path, "wb") as f:
                     f.write(pdf_content)
                     
-                print(f"[UploadAPI] Saved uploaded flyer: {clean_filename} | Target Supermarket: {supermarket} | Store: {store_id} | Gemini: {use_gemini}")
+                print(f"[UploadAPI] Saved uploaded flyer: {clean_filename} | Target Supermarket: {supermarket} | Store: {store_id} | Engine: {engine}")
                 
                 # Check for a .env file and load environment variables manually
                 if os.path.exists(".env"):
@@ -1405,7 +1468,8 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 
                 driver = ManualSupermarketDriver(
                     supermarket_name=supermarket,
-                    use_gemini=use_gemini
+                    store_id=store_id,
+                    engine=engine
                 )
                 
                 # Run ETL pipeline directly on the uploaded PDF file
@@ -1452,9 +1516,16 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
 def run_server() -> None:
     """Runs the visual verifier server."""
     # Ensure standard socket port reuse so restarting the server is instant
-    socketserver.TCPServer.allow_reuse_address = True
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
     
-    with socketserver.TCPServer(("", PORT), DashboardHTTPHandler) as httpd:
+    # Initialize database schema dynamically at startup
+    from storage.database import initialize_db
+    try:
+        initialize_db(DB_PATH)
+    except Exception as e:
+        print(f"[Dashboard] Warning: Database initialization failed: {e}")
+        
+    with socketserver.ThreadingTCPServer(("", PORT), DashboardHTTPHandler) as httpd:
         print("\n" + "=" * 70)
         print(" GDO SCRAPER - VISUAL VERIFICATION DASHBOARD IS LIVE!")
         print("=" * 70)

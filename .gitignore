@@ -30,3 +30,8 @@ scratch/
 dpiu.txt
 out*.json
 *.log
+
+# File legati all'agente di sviluppo e risposte API di esempio
+.agents/
+agents.sh
+resp_api_*.json

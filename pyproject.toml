@@ -12,5 +12,6 @@ dependencies = [
     "pypdf>=6.12.1",
     "requests>=2.34.2",
     "pytesseract>=0.3.10",
+    "anthropic>=0.105.2",
 ]
 

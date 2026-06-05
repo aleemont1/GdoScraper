@@ -30,7 +30,6 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         self._conad_parser = ConadOfferParser()
         self.max_flyers = max_flyers
         self.radius = radius
-        self.radius = radius
         self.choose_store = choose_store
 
     @property
@@ -56,7 +55,7 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         and download the PDFs locally.
         """
         # 1. Detect if store_id represents coordinates (lat, lon)
-        coords_match = re.match(r"^\s*([-+]?\d+(?:\.\d+)?)\s*,\s*([-+]?\d+(?:\.\d+)?)\s*$", store_id)
+        coords_match = self.COORDINATES_REGEX.match(store_id)
         
         anacan_id = None
         if coords_match:
@@ -95,30 +94,11 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
                 # Dynamic terminal selector if requested and multiple stores are found
                 if self.choose_store and len(stores) > 1:
                     print(f"\nDiscovered {len(stores)} Conad stores within {self.radius} km:")
-                    for idx, s in enumerate(stores):
-                        print(f"  {idx+1}) {s.get('descrizioneInsegna', 'CONAD')} - {s.get('pdvAddress')} [{s.get('distanza')} km] (anacanId: {s.get('anacanId')})")
-                    
-                    selected_idx = 0
-                    while True:
-                        try:
-                            user_input = input(f"Select a store [1-{len(stores)}] (Enter to default to closest store): ").strip()
-                            if not user_input:
-                                selected_idx = 0
-                                break
-                            val = int(user_input)
-                            if 1 <= val <= len(stores):
-                                selected_idx = val - 1
-                                break
-                            else:
-                                print(f"Please enter a number between 1 and {len(stores)}.")
-                        except ValueError:
-                            print("Invalid input. Please enter a valid integer.")
-                        except (KeyboardInterrupt, EOFError):
-                            print("\nSelection interrupted. Defaulting to closest store.")
-                            selected_idx = 0
-                            break
-                    
-                    target_store = stores[selected_idx]
+                    target_store = self._prompt_selection(
+                        stores,
+                        display_func=lambda s: f"{s.get('descrizioneInsegna', 'CONAD')} - {s.get('pdvAddress')} [{s.get('distanza')} km] (anacanId: {s.get('anacanId')})",
+                        prompt="Select a store"
+                    )
                 else:
                     target_store = stores[0]
                     

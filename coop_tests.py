@@ -39,10 +39,6 @@ class CoopApiClient:
                 "Accept-Language": "en-US,en;q=0.9",
                 "Origin": "https://www.coopalleanza3-0.it",
                 "Referer": "https://www.coopalleanza3-0.it/",
-                # TODO: Uncomment and populate these based on your DevTools inspection.
-                # API Management gateways usually require at least one of these:
-                # "Ocp-Apim-Subscription-Key": "YOUR_KEY_HERE",
-                # "Authorization": "Bearer YOUR_TOKEN_HERE"
             }
         )
 
@@ -59,12 +55,11 @@ class CoopApiClient:
         Returns:
             A dictionary containing the parsed JSON data, or None if the request fails.
         """
-        # The endpoint path includes the tenant/app ID (P2611IS) and the dynamic store ID
-        endpoint_path = f"/apim/P2611IS/{self._store_id}/promos"
+        # The endpoint path includes the tenant/app ID (P2612IS) and the dynamic store ID
+        endpoint_path = f"/apim/P2612IS/{self._store_id}/promos"
         full_url = f"{self._base_url}{endpoint_path}"
 
         # Populate the query string parameters (the part after the '?')
-        # Check DevTools to see if they use 'page'/'size' or 'offset'/'limit'
         query_parameters = {"page": page, "size": size}
 
         try:
@@ -114,7 +109,6 @@ if __name__ == "__main__":
 
     if promotions_data:
         logger.info("Successfully fetched data.")
-        # In a real scenario, you would pass 'promotions_data' to a parser/normalizer class.
         # For now, we print the raw JSON to inspect the structure.
         import json
 

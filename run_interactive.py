@@ -1,21 +1,16 @@
 #!/usr/bin/env python3
 import os
 import sys
-import subprocess
-import sqlite3
 import time
-import glob
 import shutil
+import sqlite3
+import subprocess
 
 def get_python_executable():
-    """
-    Locates the active local virtual environment python interpreter (.venv/bin/python)
-    to ensure absolute consistency of dependencies, falling back to sys.executable.
-    """
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_python = os.path.join(script_dir, ".venv", "bin", "python")
-    if os.path.exists(venv_python) and os.path.isfile(venv_python):
-        return venv_python
+    """Returns the path to the current virtual environment python executable or fallback to sys.executable."""
+    venv_py = os.path.join(".venv", "bin", "python")
+    if os.path.exists(venv_py):
+        return venv_py
     return sys.executable
 
 PYTHON_EXE = get_python_executable()
@@ -31,16 +26,18 @@ BOLD = "\033[1m"
 RESET = "\033[0m"
 
 def print_banner():
-    banner = f"""
+    """Prints the GDO Supermarket Scraper CLI banner."""
+    banner = fr"""
 {BLUE}{BOLD}   _   _  _ _____ ___   ___ ___  _____     _____ ___ 
   /_\ | \| |_   _|_ _| / __| _ \/ _ \ \   / / __| _ \\
  / _ \| .` | | |  | | | (_ |   / (_) \ \_/ /| _||   /
-/_/ \_\_|\_| |_| |___| \___|_|_\\\\___/ \___/ |___|_|_\\
+/_/ \_\_|\_| |_| |___| \___|_|_\\___/ \___/ |___|_|_\\
 {CYAN}        -- GDO Supermarket Scraper: Interactive Control CLI --{RESET}
     """
     print(banner)
 
 def run_command(cmd_list, capture_time=False):
+    """Executes a subprocess command while tracking execution time."""
     print(f"\n{YELLOW}{BOLD}Executing:{RESET} {' '.join(cmd_list)}")
     print(f"{YELLOW}" + "-"*60 + f"{RESET}")
     start_time = time.time()
@@ -58,6 +55,7 @@ def run_command(cmd_list, capture_time=False):
     input(f"\nPress Enter to continue...")
 
 def scrape_coop_menu():
+    """Interactively configures and triggers the Coop scraper."""
     print(f"\n{GREEN}{BOLD}=== COOP SCRAPER SETTINGS ==={RESET}")
     print("Select Store Location Targeting Mode:")
     print(f"  {CYAN}1{RESET}) Use City Name (Automatic Geocoding & Store Discovery)")
@@ -111,6 +109,7 @@ def scrape_coop_menu():
     run_command(cmd, capture_time=True)
 
 def scrape_conad_menu():
+    """Interactively configures and triggers the Conad scraper."""
     print(f"\n{GREEN}{BOLD}=== CONAD SCRAPER SETTINGS ==={RESET}")
     print("Select Store Targeting Mode:")
     print(f"  {CYAN}1{RESET}) Use GPS Coordinates (API Store Lookup & Download)")
@@ -164,6 +163,7 @@ def scrape_conad_menu():
     run_command(cmd, capture_time=True)
 
 def scrape_ins_menu():
+    """Interactively configures and triggers the IN's Mercato scraper."""
     print(f"\n{GREEN}{BOLD}=== IN'S MERCATO SCRAPER SETTINGS ==={RESET}")
     print("Select Store Location Targeting Mode:")
     print(f"  {CYAN}1{RESET}) Use GPS Coordinates (Dynamic Discovery & Download)")
@@ -218,6 +218,7 @@ def scrape_ins_menu():
     run_command(cmd, capture_time=True)
 
 def scrape_dpiu_menu():
+    """Interactively configures and triggers the Dpiù scraper."""
     print(f"\n{GREEN}{BOLD}=== DPIÙ SCRAPER SETTINGS ==={RESET}")
     print("Select Store Location Targeting Mode:")
     print(f"  {CYAN}1{RESET}) Use City Name (Automatic Geocoding & Store Discovery)")
@@ -267,6 +268,7 @@ def scrape_dpiu_menu():
     run_command(cmd, capture_time=True)
 
 def scrape_manual_menu():
+    """Interactively configures and triggers the manual flyer parser."""
     print(f"\n{GREEN}{BOLD}=== MANUAL FLYER SCRAPER SETTINGS ==={RESET}")
     print("Scrapes a manual PDF flyer located in downloads/uploaded/ or specified by file path.")
     
@@ -319,6 +321,7 @@ def scrape_manual_menu():
     run_command(cmd, capture_time=True)
 
 def launch_dashboard():
+    """Launches the visual verification SPA web dashboard server."""
     print(f"\n{GREEN}{BOLD}=== LAUNCHING VISUAL SPA DASHBOARD ==={RESET}")
     print(f"{CYAN}Initializing dashboard server at http://localhost:8000 ...{RESET}")
     print(f"{YELLOW}Press Ctrl+C to terminate the dashboard server.{RESET}\n")
@@ -329,6 +332,7 @@ def launch_dashboard():
     input(f"\nPress Enter to return to main menu...")
 
 def display_db_stats():
+    """Queries and displays analytics from the SQLite promotions database."""
     print(f"\n{GREEN}{BOLD}=== SQLITE DATABASE ANALYTICS ==={RESET}")
     db_path = "storage/promotions.db"
     if not os.path.exists(db_path):
@@ -388,6 +392,7 @@ def display_db_stats():
     input("\nPress Enter to return to main menu...")
 
 def dev_tools_menu():
+    """Developer maintenance tools and benchmarks."""
     while True:
         os.system('clear' if os.name == 'posix' else 'cls')
         print(f"\n{RED}{BOLD}=== DEVELOPER TOOLS & benchmark utilities ==={RESET}")
@@ -494,6 +499,7 @@ def dev_tools_menu():
             input()
 
 def main_menu():
+    """Renders the main menu interface loop for the GDO Scraper CLI."""
     while True:
         os.system('clear' if os.name == 'posix' else 'cls')
         print_banner()

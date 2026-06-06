@@ -1,5 +1,6 @@
 import re
 import requests
+import sys
 from typing import Dict, Any, List, Optional, Tuple
 from core.base_driver import AbstractApiSupermarketDriver
 from core.models import ProductOffer
@@ -21,6 +22,9 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
         choose_store: bool = False,
         choose_flyer: bool = False
     ) -> None:
+        """
+        Initializes the Coop driver with configuration and request session details.
+        """
         super().__init__(radius=radius, choose_store=choose_store, choose_flyer=choose_flyer)
         self._base_url = base_url.rstrip("/")
         self._resolved_store_code: Optional[str] = None
@@ -46,8 +50,6 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                     logger.debug("Successfully retrieved CSRF token.")
         except Exception as e:
             logger.warning(f"Failed to fetch session CSRF token: {e}")
-
-
 
     def _search_stores_by_coords(self, lat: float, lon: float) -> List[Dict[str, Any]]:
         """Queries the Coop store search API using coordinates."""
@@ -150,12 +152,16 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                 
             selected_store = None
             if self.choose_store and len(stores) > 1:
-                print(f"\nDiscovered {len(stores)} Coop stores within {self.radius} km:")
-                selected_store = self._prompt_selection(
-                    stores,
-                    display_func=lambda s: f"{s.get('name')} - {s.get('address')}, {s.get('city')} [{s.get('distance')} m]",
-                    prompt="Select a store"
-                )
+                if not sys.stdin.isatty():
+                    logger.warning("Non-interactive terminal detected. Defaulting to the closest Coop store.")
+                    selected_store = stores[0]
+                else:
+                    print(f"\nDiscovered {len(stores)} Coop stores within {self.radius} km:")
+                    selected_store = self._prompt_selection(
+                        stores,
+                        display_func=lambda s: f"{s.get('name')} - {s.get('address')}, {s.get('city')} [{s.get('distance')} m]",
+                        prompt="Select a store"
+                    )
             else:
                 selected_store = stores[0]
                 
@@ -179,31 +185,35 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
         # 3. Filter/Choose leaflets
         selected_leaflets = []
         if self.choose_flyer and len(leaflets) > 1:
-            print(f"\nAvailable promotional flyers for {store_name_resolved} ({store_code}):")
-            for idx, lf in enumerate(leaflets):
-                featured_str = " (Featured)" if lf.get("featured") else ""
-                print(f"  {idx+1}) {lf.get('titolo')}{featured_str} [Validity: {lf.get('pretty_name_validita')}] (ID: {lf.get('id')})")
-            
-            while True:
-                try:
-                    user_input = input(f"Select flyer(s) to scrape (comma-separated indices, e.g. 1,3 or 'all', default: all): ").strip()
-                    if not user_input or user_input.lower() == "all":
+            if not sys.stdin.isatty():
+                logger.warning("Non-interactive terminal detected. Defaulting to the first flyer to prevent massive automated downloads.")
+                selected_leaflets = leaflets[:1]
+            else:
+                print(f"\nAvailable promotional flyers for {store_name_resolved} ({store_code}):")
+                for idx, lf in enumerate(leaflets):
+                    featured_str = " (Featured)" if lf.get("featured") else ""
+                    print(f"  {idx+1}) {lf.get('titolo')}{featured_str} [Validity: {lf.get('pretty_name_validita')}] (ID: {lf.get('id')})")
+                
+                while True:
+                    try:
+                        user_input = input(f"Select flyer(s) to scrape (comma-separated indices, e.g. 1,3 or 'all', default: all): ").strip()
+                        if not user_input or user_input.lower() == "all":
+                            selected_leaflets = leaflets
+                            break
+                        
+                        indices = [int(i.strip()) for i in user_input.split(",") if i.strip().isdigit()]
+                        valid_indices = [i - 1 for i in indices if 0 <= i - 1 < len(leaflets)]
+                        if valid_indices:
+                            selected_leaflets = [leaflets[i] for i in valid_indices]
+                            break
+                        else:
+                            print("Invalid selection. Please try again.")
+                    except ValueError:
+                        print("Invalid input format. Use numbers separated by commas.")
+                    except (KeyboardInterrupt, EOFError):
+                        print("\nSelection interrupted. Defaulting to all flyers.")
                         selected_leaflets = leaflets
                         break
-                    
-                    indices = [int(i.strip()) for i in user_input.split(",") if i.strip().isdigit()]
-                    valid_indices = [i - 1 for i in indices if 0 <= i - 1 < len(leaflets)]
-                    if valid_indices:
-                        selected_leaflets = [leaflets[i] for i in valid_indices]
-                        break
-                    else:
-                        print("Invalid selection. Please try again.")
-                except ValueError:
-                    print("Invalid input format. Use numbers separated by commas.")
-                except (KeyboardInterrupt, EOFError):
-                    print("\nSelection interrupted. Defaulting to all flyers.")
-                    selected_leaflets = leaflets
-                    break
         else:
             selected_leaflets = leaflets
             

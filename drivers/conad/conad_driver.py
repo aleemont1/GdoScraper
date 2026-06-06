@@ -2,6 +2,7 @@ import os
 import re
 import time
 import requests
+import sys
 from typing import List, Optional
 from core.base_pdf_driver import AbstractPdfFlyerDriver
 from drivers.conad.layout_segmenter import ConadLayoutSegmenter
@@ -26,6 +27,9 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         choose_flyer: bool = False,
         parallel: bool = False
     ) -> None:
+        """
+        Initializes the Conad driver with scraper configuration options.
+        """
         super().__init__(parallel=parallel)
         self._conad_segmenter = ConadLayoutSegmenter()
         self._conad_parser = ConadOfferParser()
@@ -36,18 +40,22 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
 
     @property
     def _supermarket_name(self) -> str:
+        """Returns the canonical supermarket name."""
         return "CONAD"
 
     @property
     def _download_subdir(self) -> str:
+        """Returns the local subdirectory path where flyers are stored."""
         return "downloads/conad"
 
     @property
     def _segmenter(self) -> ConadLayoutSegmenter:
+        """Returns the layout segmenter instance for Conad."""
         return self._conad_segmenter
 
     @property
     def _parser(self) -> ConadOfferParser:
+        """Returns the semantic block parser instance for Conad."""
         return self._conad_parser
 
     def download_flyers(self, store_id: str) -> List[str]:
@@ -95,12 +103,16 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
                 
                 # Dynamic terminal selector if requested and multiple stores are found
                 if self.choose_store and len(stores) > 1:
-                    print(f"\nDiscovered {len(stores)} Conad stores within {self.radius} km:")
-                    target_store = self._prompt_selection(
-                        stores,
-                        display_func=lambda s: f"{s.get('descrizioneInsegna', 'CONAD')} - {s.get('pdvAddress')} [{s.get('distanza')} km] (anacanId: {s.get('anacanId')})",
-                        prompt="Select a store"
-                    )
+                    if not sys.stdin.isatty():
+                        logger.warning("Non-interactive terminal detected. Defaulting to the closest Conad store.")
+                        target_store = stores[0]
+                    else:
+                        print(f"\nDiscovered {len(stores)} Conad stores within {self.radius} km:")
+                        target_store = self._prompt_selection(
+                            stores,
+                            display_func=lambda s: f"{s.get('descrizioneInsegna', 'CONAD')} - {s.get('pdvAddress')} [{s.get('distanza')} km] (anacanId: {s.get('anacanId')})",
+                            prompt="Select a store"
+                        )
                 else:
                     target_store = stores[0]
                     
@@ -175,47 +187,51 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         # 3. Filter/Choose flyers
         selected_flyers = []
         if self.choose_flyer and len(active_flyers) > 1:
-            print(f"\nAvailable Conad promotional flyers:")
-            for idx, flyer in enumerate(active_flyers):
-                title = flyer.get("title", "Flyer")
-                name = flyer.get("name", "")
-                display_title = title if title else name
-                
-                # Format validity dates
-                valid_from = flyer.get("validFrom")
-                valid_to = flyer.get("validTo")
-                validity_str = ""
-                if valid_from and valid_to:
+            if not sys.stdin.isatty():
+                logger.warning("Non-interactive terminal detected. Defaulting to the first active flyer to prevent massive automated downloads.")
+                selected_flyers = active_flyers[:1]
+            else:
+                print(f"\nAvailable Conad promotional flyers:")
+                for idx, flyer in enumerate(active_flyers):
+                    title = flyer.get("title", "Flyer")
+                    name = flyer.get("name", "")
+                    display_title = title if title else name
+                    
+                    # Format validity dates
+                    valid_from = flyer.get("validFrom")
+                    valid_to = flyer.get("validTo")
+                    validity_str = ""
+                    if valid_from and valid_to:
+                        try:
+                            from datetime import datetime
+                            dt_from = datetime.fromtimestamp(valid_from / 1000.0).strftime('%d/%m/%Y')
+                            dt_to = datetime.fromtimestamp(valid_to / 1000.0).strftime('%d/%m/%Y')
+                            validity_str = f" [Validity: DAL {dt_from} AL {dt_to}]"
+                        except Exception:
+                            pass
+                    
+                    print(f"  {idx+1}) {display_title}{validity_str} (Slug: {flyer.get('slug')})")
+                    
+                while True:
                     try:
-                        from datetime import datetime
-                        dt_from = datetime.fromtimestamp(valid_from / 1000.0).strftime('%d/%m/%Y')
-                        dt_to = datetime.fromtimestamp(valid_to / 1000.0).strftime('%d/%m/%Y')
-                        validity_str = f" [Validity: DAL {dt_from} AL {dt_to}]"
-                    except Exception:
-                        pass
-                
-                print(f"  {idx+1}) {display_title}{validity_str} (Slug: {flyer.get('slug')})")
-                
-            while True:
-                try:
-                    user_input = input(f"Select flyer(s) to download & scrape (comma-separated indices, e.g. 1,3 or 'all', default: all): ").strip()
-                    if not user_input or user_input.lower() == "all":
+                        user_input = input(f"Select flyer(s) to download & scrape (comma-separated indices, e.g. 1,3 or 'all', default: all): ").strip()
+                        if not user_input or user_input.lower() == "all":
+                            selected_flyers = active_flyers
+                            break
+                            
+                        indices = [int(i.strip()) for i in user_input.split(",") if i.strip().isdigit()]
+                        valid_indices = [i - 1 for i in indices if 0 <= i - 1 < len(active_flyers)]
+                        if valid_indices:
+                            selected_flyers = [active_flyers[i] for i in valid_indices]
+                            break
+                        else:
+                            print("Invalid selection. Please try again.")
+                    except ValueError:
+                        print("Invalid input format. Use numbers separated by commas.")
+                    except (KeyboardInterrupt, EOFError):
+                        print("\nSelection interrupted. Defaulting to all flyers.")
                         selected_flyers = active_flyers
                         break
-                        
-                    indices = [int(i.strip()) for i in user_input.split(",") if i.strip().isdigit()]
-                    valid_indices = [i - 1 for i in indices if 0 <= i - 1 < len(active_flyers)]
-                    if valid_indices:
-                        selected_flyers = [active_flyers[i] for i in valid_indices]
-                        break
-                    else:
-                        print("Invalid selection. Please try again.")
-                except ValueError:
-                    print("Invalid input format. Use numbers separated by commas.")
-                except (KeyboardInterrupt, EOFError):
-                    print("\nSelection interrupted. Defaulting to all flyers.")
-                    selected_flyers = active_flyers
-                    break
         else:
             selected_flyers = active_flyers
 

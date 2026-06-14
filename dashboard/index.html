@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="title">Controllo Offerte Supermercati</title>
+    <!-- Include premium Google Fonts for technical interface styling -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/dashboard/index.css">
+</head>
+<body class="dark-mode">
+
+    <!-- Top Instrument Panel Navigation -->
+    <header class="app-header">
+        <div class="header-logo">
+            <div class="logo-text">
+                <h1 data-i18n="app_title">Offerte GDO</h1>
+                <p data-i18n="app_subtitle">Gestione Volantini e Offerte</p>
+            </div>
+        </div>
+        
+        <nav class="app-tabs">
+            <button class="tab-btn active" id="tab-audit" onclick="switchTab('audit')" data-i18n="tab_audit">
+                Registro Promozioni
+            </button>
+            <button class="tab-btn" id="tab-extract" onclick="switchTab('extract')" data-i18n="tab_extract">
+                Estrai Offerte
+            </button>
+        </nav>
+
+        <div class="header-controls">
+            <button class="control-btn" id="lang-toggle" title="Switch Language / Cambia Lingua" onclick="toggleLanguage()">
+                <span id="lang-icon">IT</span>
+            </button>
+            <button class="control-btn" id="theme-toggle" title="Toggle Theme mode" onclick="toggleTheme()">
+                <span id="theme-icon">☼</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <main class="app-content">
+
+        <!-- Tab 1: Promotions Audit view -->
+        <section id="view-audit" class="view-section active">
+            <!-- Filtering & Query Workstation -->
+            <div class="control-card">
+                <div class="filter-group">
+                    <div class="input-wrapper select-wrapper">
+                        <label for="filter-supermarket" data-i18n="filter_supermarket_label">Nodo Supermercato</label>
+                        <select id="filter-supermarket" onchange="applyFilters()">
+                            <option value="ALL" data-i18n="opt_all_nodes">Tutti i Nodi</option>
+                            <option value="COOP">Coop</option>
+                            <option value="CONAD">Conad</option>
+                            <option value="INS">IN's</option>
+                            <option value="DPIU">Dpiù</option>
+                            <option value="MANUAL" data-i18n="opt_manual_uploads">Caricamenti Manuali</option>
+                        </select>
+                    </div>
+
+                    <div class="input-wrapper search-wrapper">
+                        <label for="search-input" data-i18n="search_input_label">Stringa di Ricerca</label>
+                        <input type="text" id="search-input" data-i18n-placeholder="search_input_placeholder" placeholder="Cerca nome prodotto, brand o codice a barre..." oninput="applyFilters()">
+                    </div>
+                </div>
+
+                <div class="action-group">
+                    <button class="btn btn-secondary" onclick="showStatsModal()" data-i18n="btn_db_stats">
+                        Statistiche DB
+                    </button>
+                    <button class="btn btn-primary" onclick="loadOffers()" data-i18n="btn_refresh_registers">
+                        Aggiorna Registro
+                    </button>
+                </div>
+            </div>
+
+            <!-- Datagrid Card -->
+            <div class="table-card">
+                <div class="table-header-info">
+                    <span id="record-count">Mostrati 0 record</span>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <button id="btn-reset-sort" class="btn btn-secondary btn-action-sm hidden" onclick="resetSort()" style="font-size: 0.75rem; padding: 4px 8px;" data-i18n="btn_reset_sort">Ripristina Ordine</button>
+                        <span data-i18n="verification_engine_label">MOTORE DI VERIFICA: ATTIVO</span>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th onclick="sortBy('supermarket')" class="sortable-header" data-i18n="th_chain">Catena</th>
+                                <th style="text-align: center;" onclick="sortBy('store_id')" class="sortable-header" data-i18n="th_store_id">ID Negozio</th>
+                                <th onclick="sortBy('name')" class="sortable-header" data-i18n="th_product">Prodotto</th>
+                                <th onclick="sortBy('brand')" class="sortable-header" data-i18n="th_brand">Brand</th>
+                                <th onclick="sortBy('weight_or_volume')" class="sortable-header" data-i18n="th_weight">Peso</th>
+                                <th onclick="sortBy('price')" class="sortable-header" data-i18n="th_retail_price">Prezzo di Vendita</th>
+                                <th onclick="sortBy('ean_code')" class="sortable-header" data-i18n="th_ean">Codice EAN</th>
+                                <th onclick="sortBy('extracted_at')" class="sortable-header" data-i18n="th_extracted">Data Estrazione</th>
+                                <th style="text-align: center;" data-i18n="th_actions">Azioni</th>
+                            </tr>
+                        </thead>
+                        <tbody id="table-body">
+                            <tr>
+                                <td colspan="9" class="table-empty" data-i18n="table_initializing">
+                                    Inizializzazione del registro delle promozioni...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Tab 2: Extraction terminal -->
+        <section id="view-extract" class="view-section">
+            <div class="wizard-grid">
+                
+                <!-- Configurations Module Panel -->
+                <div class="wizard-panel config-panel">
+                    <div class="panel-header">
+                        <h2 data-i18n="etl_config_title">Impostazioni di Ricerca</h2>
+                        <p data-i18n="etl_config_subtitle">Scegli dove e come cercare le offerte promozionali</p>
+                    </div>
+
+                    <!-- Supermarket Target Selection -->
+                    <div class="form-section">
+                        <label class="section-label" data-i18n="target_supermarket_label">01 / Scegli il Supermercato</label>
+                        <div class="supermarket-grid">
+                            <div class="sm-card active" onclick="selectSupermarket('coop')" id="sm-coop">
+                                <div class="sm-card-header">
+                                    <span class="sm-logo"><img src="/dashboard/coop.png" class="sm-logo-img" alt="Coop"></span>
+                                    <h3>Coop</h3>
+                                </div>
+                            </div>
+                            <div class="sm-card" onclick="selectSupermarket('conad')" id="sm-conad">
+                                <div class="sm-card-header">
+                                    <span class="sm-logo"><img src="/dashboard/conad.ico" class="sm-logo-img" alt="Conad"></span>
+                                    <h3>Conad</h3>
+                                </div>
+                            </div>
+                            <div class="sm-card" onclick="selectSupermarket('ins')" id="sm-ins">
+                                <div class="sm-card-header">
+                                    <span class="sm-logo"><img src="/dashboard/ins.png" class="sm-logo-img" alt="IN's"></span>
+                                    <h3>IN's</h3>
+                                </div>
+                            </div>
+                            <div class="sm-card" onclick="selectSupermarket('dpiu')" id="sm-dpiu">
+                                <div class="sm-card-header">
+                                    <span class="sm-logo"><img src="/dashboard/dpiu.ico" class="sm-logo-img" alt="Dpiù"></span>
+                                    <h3>Dpiù</h3>
+                                </div>
+                            </div>
+                            <div class="sm-card" onclick="selectSupermarket('manual')" id="sm-manual">
+                                <div class="sm-card-header">
+                                    <span class="sm-logo"><span class="sm-logo-text">PDF</span></span>
+                                    <h3>Manual</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Geographic Locators -->
+                    <div class="form-section" id="target-store-section">
+                        <label class="section-label" for="store-target-input" data-i18n="geo_coordinates_label">02 / Coordinate Geografiche del Nodo</label>
+                        <p class="section-helper" data-i18n="geo_coordinates_helper">Inserisci città, coordinate lat/lon o codice negozio diretto.</p>
+                        <div class="inline-search-group">
+                            <input type="text" id="store-target-input" data-i18n-placeholder="geo_placeholder" placeholder="es. Cesena" value="Cesena">
+                            <button class="btn btn-primary" id="btn-search-stores" onclick="searchStores()" data-i18n="btn_discover_stores">Trova Negozi</button>
+                        </div>
+
+                        <!-- Discovered Store Selection -->
+                        <div class="discovered-stores-container hidden" id="discovered-stores-card">
+                            <h4 data-i18n="discovered_stores_label">Negozi Rilevati nel raggio:</h4>
+                            <div class="stores-list" id="stores-selection-list">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Discovered Flyer Selection -->
+                        <div class="discovered-flyers-container hidden" id="discovered-flyers-card">
+                            <h4 data-i18n="active_catalogs_label">Volantini Attivi rilevati:</h4>
+                            <div class="flyers-list" id="flyers-selection-list">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dropzone (Manual Mode only) -->
+                    <div class="form-section hidden" id="manual-upload-section">
+                        <label class="section-label" data-i18n="upload_pdf_label">02 / Carica Documento Volantino PDF</label>
+                        <div class="upload-dropzone" id="dropzone" onclick="triggerFileInput()" ondragover="handleDragOver(event)" ondrop="handleDrop(event)">
+                            <div class="dropzone-info">
+                                <span class="dropzone-icon">⇪</span>
+                                <h3 data-i18n="drag_drop_label">Trascina qui il file PDF del volantino</h3>
+                                <p data-i18n="browse_files_label">o clicca per sfogliare i file locali</p>
+                                <span class="file-name-label" id="file-name-label" data-i18n="no_file_selected">Nessun file selezionato</span>
+                            </div>
+                            <input type="file" id="manual-file-input" accept="application/pdf" style="display: none;" onchange="handleFileSelect(event)">
+                        </div>
+
+                        <div class="input-wrapper" style="margin-top: 15px;">
+                            <label for="manual-supermarket-name" data-i18n="custom_supermarket_tag">Tag Supermercato Personalizzato</label>
+                            <input type="text" id="manual-supermarket-name" value="MANUAL" placeholder="e.g. Lidl, Eurospin">
+                        </div>
+                        <div class="input-wrapper" style="margin-top: 10px;">
+                            <label for="manual-store-id" data-i18n="custom_store_code">Codice Negozio Personalizzato</label>
+                            <input type="text" id="manual-store-id" value="MANUAL_STORE" placeholder="e.g. cesena_city">
+                        </div>
+                    </div>
+
+                    <!-- Execution Options & Settings -->
+                    <div class="form-section action-section" style="border-top: 1px solid var(--border-color); padding-top: 20px;">
+                        <div class="toggle-advanced-wrapper">
+                            <button class="text-link-btn" onclick="toggleAdvancedSettings()">
+                                <span id="advanced-toggle-icon">▶</span> <span data-i18n="advanced_options_label">Opzioni</span>
+                            </button>
+                        </div>
+
+                        <!-- Advanced Configurations block -->
+                        <div class="advanced-settings-card hidden" id="advanced-settings-block">
+                            <div class="settings-grid">
+                                <div class="input-wrapper">
+                                    <label for="radius-input" data-i18n="search_radius_label">Raggio di ricerca (km)</label>
+                                    <input type="number" id="radius-input" value="15" min="1" max="100">
+                                </div>
+                                <div class="input-wrapper">
+                                    <label for="db-path-input" data-i18n="target_db_path_label">Percorso Database Target</label>
+                                    <input type="text" id="db-path-input" value="storage/promotions.db">
+                                </div>
+                                <div class="input-wrapper" id="parallel-wrapper">
+                                    <label for="parallel-input" class="checkbox-label">
+                                        <input type="checkbox" id="parallel-input"> <span data-i18n="parallel_execution_label">Esecuzione Parallela</span>
+                                    </label>
+                                </div>
+                                <div class="input-wrapper" id="engine-wrapper">
+                                    <label for="engine-input" data-i18n="extraction_engine_label">Motore di Estrazione</label>
+                                    <select id="engine-input">
+                                        <option value="AUTO" data-i18n="opt_engine_auto">Rilevamento Automatico Griglia / OCR</option>
+                                        <option value="TESSERACT" data-i18n="opt_engine_tesseract">Tesseract OCR Offline</option>
+                                        <option value="GEMINI" data-i18n="opt_engine_gemini">API Multimodale Gemini</option>
+                                        <option value="CLAUDE" data-i18n="opt_engine_claude">API Claude Haiku</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button class="btn btn-primary btn-large" id="btn-trigger-scrape" onclick="triggerScrapeExecution()" data-i18n="btn_start_extraction" style="margin-top: 25px;">
+                            Avvia Estrazione Dati
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Monitoring Terminal Console -->
+                <div class="wizard-panel status-panel">
+                    <div class="panel-header">
+                        <h2 data-i18n="pipeline_monitor_title">Stato dell'operazione</h2>
+                        <p data-i18n="pipeline_monitor_subtitle">Dettagli e messaggi dell'attività in corso</p>
+                    </div>
+                    
+                    <div class="terminal-console">
+                        <div class="console-header">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                            <span class="console-title">system_etl_daemon.sh</span>
+                        </div>
+                        <div class="console-body" id="console-logs">
+                            <p class="system-line">[SYSTEM] ETL Monitor online. Awaiting task trigger sequence...</p>
+                        </div>
+                    </div>
+
+                    <div class="execution-result-card hidden" id="execution-result-card">
+                        <div class="result-badge success" id="result-badge">SUCCESS</div>
+                        <div>
+                            <h3 id="result-title">Extraction Finished</h3>
+                            <p id="result-description">Normalized 0 promotions and updated database records.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Global Floating Crop Viewfinder Overlay -->
+    <div id="image-zoomer" class="image-zoomer-card hidden">
+        <div class="viewfinder-corners">
+            <span class="corner tl"></span>
+            <span class="corner tr"></span>
+            <span class="corner bl"></span>
+            <span class="corner br"></span>
+        </div>
+        <div class="zoomer-grid-overlay"></div>
+        <img id="zoomer-img" src="" alt="Calibration Preview Target">
+        <div class="zoomer-details">
+            <span class="zoomer-tag">VERIFIED AI CROP</span>
+            <h4 id="zoomer-name">Product Name</h4>
+            <p id="zoomer-price">€0.00</p>
+        </div>
+    </div>
+
+    <!-- Statistics Modal Overlay -->
+    <div id="stats-modal" class="modal-overlay hidden" onclick="closeStatsModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 data-i18n="db_analytics_title">Aggregati & Analitiche Database</h2>
+                <button class="modal-close-btn" onclick="closeStatsModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="stats-grid">
+                    <div class="stat-stat-card">
+                        <span class="stat-number" id="stat-total-offers">0</span>
+                        <span class="stat-label" data-i18n="stat_total_promos">Totale Promozioni</span>
+                    </div>
+                    <div class="stat-stat-card">
+                        <span class="stat-number" id="stat-total-supermarkets">0</span>
+                        <span class="stat-label" data-i18n="stat_total_nodes">Nodi Supermercato</span>
+                    </div>
+                </div>
+
+                <div class="modal-table-section">
+                    <h3 data-i18n="stats_breakdown_title">Scomposizione per Nodo Supermercato</h3>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th data-i18n="stats_th_supermarket">Supermercato</th>
+                                    <th data-i18n="stats_th_store_id">ID Negozio</th>
+                                    <th data-i18n="stats_th_total_offers">Offerte Totali</th>
+                                    <th data-i18n="stats_th_min_price">Prezzo Min</th>
+                                    <th data-i18n="stats_th_max_price">Prezzo Max</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modal-stats-table-body">
+                                <tr>
+                                    <td colspan="5" style="text-align: center;" data-i18n="stats_gathering">Raccolta degli aggregati del database...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden input for uploading/replacing product images during auditing -->
+    <input type="file" id="product-image-file-input" accept="image/*" style="display: none;" onchange="handleProductImageFileSelect(event)">
+
+    <!-- Toast notifications container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Custom Dialog Modal -->
+    <div id="confirm-modal" class="modal-overlay hidden" onclick="event.stopPropagation()">
+        <div class="modal-content modal-confirm">
+            <div class="modal-header">
+                <h2 data-i18n="confirm_action_title">Conferma Azione</h2>
+            </div>
+            <div class="modal-body" style="padding: 24px 28px;">
+                <p id="confirm-modal-message" style="margin-bottom: 24px; font-size: 0.95rem; line-height: 1.5; color: var(--text-primary); font-family: var(--font-body);"></p>
+                <div style="display: flex; justify-content: flex-end; gap: 12px;">
+                    <button id="confirm-modal-btn-cancel" class="btn btn-secondary btn-action-sm" data-i18n="btn_cancel">Annulla</button>
+                    <button id="confirm-modal-btn-confirm" class="btn btn-primary btn-action-sm" data-i18n="btn_confirm">Conferma</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/dashboard/index.js"></script>
+</body>
+</html>

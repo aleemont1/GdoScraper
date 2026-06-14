@@ -1,4 +1,3 @@
-import sqlite3
 import os
 import re
 import difflib
@@ -57,7 +56,8 @@ def get_standard_image(product_name: str) -> Optional[str]:
         "anguri": "anguria.png",
         "melone": "melone.png",
         "uva": "uva.png",
-        "per": "pere.png",
+        "pere": "pere.png",
+        "pera": "pere.png",
     }
 
     # Exclusion list for fresh produce standard images:
@@ -102,11 +102,15 @@ def find_reusable_image(
     threshold: float = 0.88,
 ) -> Optional[str]:
     """
-    Scans the promotions database for products with highly similar names (using fuzzy matching)
+    Scans the promotions database or active storage engine for products with highly similar names
     within the same supermarket chain. If a match is found, returns its existing image URL,
     allowing us to reuse the crop on disk and save massive disk space.
     """
-    if not os.path.exists(db_path):
+    from storage.database import get_storage
+    storage = get_storage(db_path=db_path)
+
+    # If using local SQLite and the DB file doesn't exist, search can't proceed
+    if hasattr(storage, 'db_path') and not os.path.exists(storage.db_path):
         return None
 
     normalized_new = _normalize_string(product_name)
@@ -114,44 +118,27 @@ def find_reusable_image(
         return None
 
     try:
-        with sqlite3.connect(db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            
-            # 1. Fast exact-match lookup on raw name
-            cursor.execute(
-                "SELECT image_url FROM promotions WHERE supermarket = ? AND name = ? AND image_url IS NOT NULL AND image_url != '' LIMIT 1;",
-                (supermarket, product_name),
-            )
-            row = cursor.fetchone()
-            if row:
-                logger.info(f"Fast exact raw match found for '{product_name}': reusing '{row[0]}'")
-                return row[0]
+        # Fetch reusable image candidates from active storage engine
+        rows = storage.find_reusable_images(supermarket)
+        if not rows:
+            return None
 
-            # 2. Word/keyword filtering inside SQLite before using difflib.SequenceMatcher
-            words = [w for w in normalized_new.split() if len(w) >= 3]
-            if words:
-                like_clauses = " OR ".join(["name LIKE ?" for _ in words])
-                query = f"""
-                    SELECT name, image_url 
-                    FROM promotions 
-                    WHERE supermarket = ? 
-                      AND image_url IS NOT NULL 
-                      AND image_url != '' 
-                      AND ({like_clauses});
-                """
-                params = [supermarket] + [f"%{w}%" for w in words]
-                cursor.execute(query, params)
-            else:
-                cursor.execute(
-                    "SELECT name, image_url FROM promotions WHERE supermarket = ? AND image_url IS NOT NULL AND image_url != '';",
-                    (supermarket,),
-                )
-            rows = cursor.fetchall()
+        # 1. Fast exact-match lookup on raw name
+        for r in rows:
+            name = r.get("name")
+            image_url = r.get("image_url")
+            if name == product_name and image_url:
+                logger.info(f"Fast exact raw match found for '{product_name}': reusing '{image_url}'")
+                return image_url
 
         best_match_url = None
         best_ratio = 0.0
 
-        for old_name, image_url in rows:
+        for r in rows:
+            old_name = r.get("name")
+            image_url = r.get("image_url")
+            if not old_name or not image_url:
+                continue
             normalized_old = _normalize_string(old_name)
             if not normalized_old:
                 continue
@@ -177,6 +164,7 @@ def find_reusable_image(
         logger.error(f"Fuzzy image reuse scan failed: {err}")
 
     return None
+
 
 
 def post_process_image_background(pil_img: Image.Image, padding_percent: float = 0.03) -> Image.Image:

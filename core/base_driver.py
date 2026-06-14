@@ -1,19 +1,28 @@
+"""
+Base driver module for GDO Supermarket Scrapers.
+
+Defines the abstract base classes and shared utility methods for coordinate geocoding,
+distance calculations, HTTP session management, and parsing interfaces.
+Follows the Strategy Pattern to decouple chain-specific scraping logic from the runner.
+"""
+
 import re
 import os
 import math
 import requests
 from abc import ABC, abstractmethod
-from typing import List, Any, Optional, Dict, Tuple, Callable
+from typing import List, Any, Optional, Dict, Tuple
 from core.models import ProductOffer
 from utils.logger import setup_logger
 
 logger = setup_logger("BaseDriver")
 
+
 class AbstractSupermarketDriver(ABC):
     """
     Abstract base class defining the standard interface for supermarket scrapers.
     Follows the Strategy Pattern to decouple parsing strategies from execution.
-    Contains unified helper methods for geocoding, distance, sessions, and selectors.
+    Contains unified helper methods for geocoding, distance, and session initialization.
     """
     
     # Class-level compiled coordinates detector regex
@@ -23,6 +32,12 @@ class AbstractSupermarketDriver(ABC):
     def fetch_promotions(self, store_id: str) -> Any:
         """
         Fetches the raw promotion data (JSON, HTML, PDF content, etc.) from the source.
+        
+        Args:
+            store_id: Identifier of the target supermarket store.
+            
+        Returns:
+            Raw promotion data.
         """
         pass
 
@@ -30,12 +45,25 @@ class AbstractSupermarketDriver(ABC):
     def parse_promotions(self, raw_data: Any, store_id: str) -> List[ProductOffer]:
         """
         Parses raw promotion data into a list of normalized ProductOffer objects.
+        
+        Args:
+            raw_data: Raw promotion data fetched from the source.
+            store_id: Identifier of the target store.
+            
+        Returns:
+            List of normalized ProductOffer objects.
         """
         pass
 
     def run_etl(self, store_id: str) -> List[ProductOffer]:
         """
         Executes the full ETL extraction pipeline for the given store.
+        
+        Args:
+            store_id: Target store identifier.
+            
+        Returns:
+            List of successfully extracted and validated ProductOffer objects.
         """
         try:
             raw_data = self.fetch_promotions(store_id)
@@ -46,10 +74,60 @@ class AbstractSupermarketDriver(ABC):
             logger.error(f"Failed to execute ETL process for store {store_id}: {e}", exc_info=True)
             return []
 
+    def discover_stores(self, store_id: str) -> List[Dict[str, Any]]:
+        """
+        Discovers stores matching the given store query or coordinates.
+        By default, returns a single placeholder store entry mapping directly to the ID.
+        Subclasses should override this to provide proper API store lookup capabilities.
+        
+        Args:
+            store_id: A city name, coordinates, or store code query.
+            
+        Returns:
+            A list of discovered store dictionaries containing:
+              - 'id': Resolved unique store identifier.
+              - 'name': Descriptive name of the store.
+              - 'address': Physical address.
+              - 'city': City name.
+              - 'distance': Distance from search query (if applicable).
+        """
+        return [{
+            "id": store_id,
+            "name": f"Store {store_id}",
+            "address": "Direct Targeting",
+            "city": "",
+            "distance": None
+        }]
+
+    def discover_flyers(self, store_code: str) -> List[Dict[str, Any]]:
+        """
+        Discovers active promotional flyer catalogs for the resolved store code.
+        Subclasses with visual flyer parsing capabilities should override this.
+        
+        Args:
+            store_code: Resolved store code.
+            
+        Returns:
+            A list of flyer dictionaries containing:
+              - 'id': Unique flyer catalog identifier (e.g., flyer ID, slug).
+              - 'title': Descriptive title of the flyer.
+              - 'validity': Human-readable validity period text.
+              - 'featured': Boolean indicating if this is a primary featured flyer.
+        """
+        return []
+
     # --- SHARED OOP UTILITY METHODS ---
 
     def _init_session(self, headers: Optional[Dict[str, str]] = None) -> requests.Session:
-        """Initializes a requests.Session with standard browser user-agent headers."""
+        """
+        Initializes a requests.Session with standard browser user-agent headers.
+        
+        Args:
+            headers: Optional dictionary of headers to override defaults.
+            
+        Returns:
+            A configured requests.Session object.
+        """
         session = requests.Session()
         standard_headers = {
             "User-Agent": (
@@ -66,7 +144,19 @@ class AbstractSupermarketDriver(ABC):
         return session
 
     def _haversine_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-        """Computes the great-circle distance between two points in kilometers."""
+        """
+        Computes the great-circle distance between two points on the Earth's surface
+        using the Haversine formula.
+        
+        Args:
+            lat1: Latitude of the first point.
+            lon1: Longitude of the first point.
+            lat2: Latitude of the second point.
+            lon2: Longitude of the second point.
+            
+        Returns:
+            Distance in kilometers.
+        """
         R = 6371.0
         phi1 = math.radians(lat1)
         phi2 = math.radians(lat2)
@@ -78,7 +168,15 @@ class AbstractSupermarketDriver(ABC):
         return R * c
 
     def _geocode_location(self, query: str) -> Optional[Tuple[float, float]]:
-        """Geocodes a city/address query using Photon OSM search API. Returns (lat, lon)."""
+        """
+        Geocodes a city/address query using Photon OSM search API.
+        
+        Args:
+            query: Location text search query.
+            
+        Returns:
+            A tuple of (latitude, longitude) or None if geocoding fails.
+        """
         logger.info(f"Geocoding '{query}' via Photon OpenStreetMap search...")
         url = f"https://photon.komoot.io/api/?q={query}&limit=1"
         try:
@@ -99,7 +197,17 @@ class AbstractSupermarketDriver(ABC):
         return None
 
     def _reverse_geocode(self, lat: float, lon: float, cache_path: str = "storage/geocode_cache.json") -> str:
-        """Reverse geocodes latitude/longitude coordinates to a city name using caching."""
+        """
+        Reverse geocodes latitude/longitude coordinates to a city name using caching.
+        
+        Args:
+            lat: Latitude.
+            lon: Longitude.
+            cache_path: Path to geocode cache JSON file.
+            
+        Returns:
+            Resolved city/locality name.
+        """
         import json
         cache_key = f"{lat},{lon}"
         cache = {}
@@ -158,37 +266,6 @@ class AbstractSupermarketDriver(ABC):
 
         return city
 
-    def _prompt_selection(
-        self,
-        items: List[Any],
-        display_func: Callable[[Any], str],
-        prompt: str,
-        default_idx: int = 0
-    ) -> Any:
-        """Displays a list of items and prompts the user in the console for an index selection."""
-        if not items:
-            raise ValueError("Cannot prompt selection from an empty list.")
-        
-        for idx, item in enumerate(items):
-            print(f"  {idx+1}) {display_func(item)}")
-        
-        while True:
-            try:
-                user_input = input(f"{prompt} [1-{len(items)}] (Enter to default to index {default_idx+1}): ").strip()
-                if not user_input:
-                    return items[default_idx]
-                
-                val = int(user_input)
-                if 1 <= val <= len(items):
-                    return items[val - 1]
-                else:
-                    print(f"Please enter a number between 1 and {len(items)}.")
-            except ValueError:
-                print("Invalid input. Please enter a valid integer.")
-            except (KeyboardInterrupt, EOFError):
-                print(f"\nSelection interrupted. Defaulting to index {default_idx+1}.")
-                return items[default_idx]
-
 
 class AbstractApiSupermarketDriver(AbstractSupermarketDriver):
     """
@@ -201,6 +278,14 @@ class AbstractApiSupermarketDriver(AbstractSupermarketDriver):
         choose_store: bool = False,
         choose_flyer: bool = False
     ) -> None:
+        """
+        Initializes the API driver.
+        
+        Args:
+            radius: Research radius in kilometers for store discovery.
+            choose_store: Whether the store list requires interactive selection.
+            choose_flyer: Whether the flyer list requires interactive selection.
+        """
         self.radius = radius
         self.choose_store = choose_store
         self.choose_flyer = choose_flyer
@@ -215,6 +300,7 @@ class AbstractOfferParser(ABC):
     """
 
     def __init__(self) -> None:
+        """Initializes regex patterns for parsing prices, discounts, weights, and dates."""
         # Compiled Regex patterns (allowing optional spaces around the decimal comma)
         self._price_decimal = re.compile(r"\b(\d+)\s*,\s*(\d{2})\b")
         self._price_separated = re.compile(r"\b(\d+)\s*€\s*,\s*(\d{2})\b")
@@ -251,6 +337,12 @@ class AbstractOfferParser(ABC):
         """
         Collapses single uppercase letters separated by spaces (e.g. C U O R E -> CUORE),
         excluding standard prepositions/articles.
+        
+        Args:
+            text: Input text string.
+            
+        Returns:
+            Normalized text.
         """
         words = text.split()
         if not words:
@@ -283,6 +375,12 @@ class AbstractOfferParser(ABC):
     def parse_flyer_validity(self, text: str) -> Optional[str]:
         """
         Scans page text (typically Page 1) to identify global flyer validity.
+        
+        Args:
+            text: Input text block from flyer first page.
+            
+        Returns:
+            Flyer validity period string or None.
         """
         pass
 
@@ -290,5 +388,13 @@ class AbstractOfferParser(ABC):
     def parse_cell(self, text: str, store_id: str, validity_string: Optional[str]) -> ProductOffer:
         """
         Extracts a validated ProductOffer model from a single cell's text block.
+        
+        Args:
+            text: Cell text block.
+            store_id: Supermarket store identifier.
+            validity_string: Validity period of the flyer catalog.
+            
+        Returns:
+            A normalized ProductOffer model.
         """
         pass

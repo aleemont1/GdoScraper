@@ -306,6 +306,54 @@ class ConadOfferParser(AbstractOfferParser):
         clean_text = re.sub(r"\s+", " ", clean_text)
         clean_text = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9)]+$", "", clean_text).strip()
         
+        # If the name is unusually long (potential description paragraph leak)
+        if clean_text and len(clean_text) > 80:
+            parts = re.split(r"(?:•|\.|\n|;)", clean_text)
+            valid_parts = []
+            for part in parts:
+                part = part.strip()
+                if not part or len(part) < 3:
+                    continue
+                
+                # Skip technical specification segments
+                is_spec = False
+                spec_keywords = [
+                    "tipologia", "vitigni", "aspetto", "bouquet", "sapore", "gradazione", 
+                    "temperatura", "abbinament", "colore", "profumo", "uvaggio", "zona di"
+                ]
+                for kw in spec_keywords:
+                    if kw in part.lower()[:20]:
+                        is_spec = True
+                        break
+                if is_spec:
+                    continue
+                
+                # Skip segments with high density of lowercase narrative text
+                words = [w for w in part.split() if w.strip() and w.isalpha()]
+                if len(words) > 4:
+                    ignore_linking = {"di", "da", "con", "a", "al", "alla", "e", "per", "in", "dei", "della", "del", "o", "ed"}
+                    content_words = [w for w in words if w.lower() not in ignore_linking]
+                    if content_words:
+                        upper_words = sum(1 for w in content_words if w[0].isupper() or w.isupper())
+                        ratio = upper_words / len(content_words)
+                        # Narrative indicators: verbs/pronouns common in descriptive sentences
+                        narrative_indicators = {"è", "sono", "ha", "hanno", "fu", "furono", "trovato", "trovati", "si", "fa", "fatto", "che", "chi", "quale", "qualora"}
+                        has_narrative_words = any(w.lower() in narrative_indicators for w in words)
+                        if ratio < 0.4 or (ratio < 0.6 and has_narrative_words):
+                            logger.info(f"Filtered narrative description segment from name: '{part}'")
+                            continue
+                
+                valid_parts.append(part)
+            
+            clean_text = " ".join(valid_parts)
+            clean_text = re.sub(r"\s+", " ", clean_text)
+            clean_text = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9)]+$", "", clean_text).strip()
+            
+        # Hard limit to prevent UI overflow/breakage
+        if clean_text and len(clean_text) > 90:
+            logger.warning(f"Truncating extremely long product name: '{clean_text}'")
+            clean_text = clean_text[:87] + "..."
+            
         # Re-incorporate the brand at the beginning for database standard layout
         if brand and clean_text:
             return f"{brand} {clean_text}"

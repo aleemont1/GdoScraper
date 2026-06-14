@@ -1,3 +1,10 @@
+"""
+Base PDF Driver for GDO Supermarket Scrapers.
+
+Implements AbstractPdfFlyerDriver, providing visual layout segmentation,
+image cropping, caching, vector extraction, and visual OCR fallback engines (Gemini and Claude).
+"""
+
 import os
 import glob
 import re
@@ -17,18 +24,20 @@ logger = setup_logger("BasePdfDriver")
 
 
 class ExtractedOffer(BaseModel):
-    reasoning: str = Field(description="Ragionamento dettagliato step-by-step: leggi il prezzo, identifica il brand/nome/peso, e calcola i confini esatti della sola foto del prodotto (Chain-of-Thought)")
-    name: str = Field(description="Nome del prodotto ed eventuale descrizione breve in italiano (es. 'Biscotti Frollini')")
-    brand: Optional[str] = Field(None, description="Marca del prodotto se chiaramente indicata (es. 'Mulino Bianco')")
-    weight_or_volume: Optional[str] = Field(None, description="Peso, volume o quantità (es. '500g', '6x1.5L')")
-    price: float = Field(description="Prezzo in euro dell'offerta in cifre decimali (es. 1.89)")
-    original_price: Optional[float] = Field(None, description="Prezzo originale o barrato se indicato (es. 2.49)")
-    discount_percentage: Optional[int] = Field(None, description="Percentuale di sconto se indicata (es. 30)")
-    category: Optional[str] = Field(None, description="Categoria merceologica del prodotto (es. 'Alimentari', 'Bevande')")
-    bbox: List[int] = Field(description="Coordinate rettangolo [ymin, xmin, ymax, xmax] normalizzate da 0 a 1000 che inquadrano la card del prodotto")
+    """Pydantic model representing an offer extracted via multimodal visual LLMs."""
+    reasoning: str = Field(description="Chain-of-Thought reasoning: 1. Describe the packaging visually (e.g. colors, shape, features, graphics). 2. Find the product name, brand, weight and price. 3. Define the precise bounding box enclosing ONLY the packaging/product image itself, excluding price bubbles or text.")
+    name: str = Field(description="Name of the product and optional short description in Italian (e.g., 'Biscotti Frollini')")
+    brand: Optional[str] = Field(None, description="Brand name of the product if clearly indicated (e.g., 'Mulino Bianco')")
+    weight_or_volume: Optional[str] = Field(None, description="Weight, volume, or quantity (e.g., '500g', '6x1.5L')")
+    price: float = Field(description="Active promotional price in euros as decimal (e.g., 1.89)")
+    original_price: Optional[float] = Field(None, description="Original pre-discount price if indicated (e.g., 2.49)")
+    discount_percentage: Optional[int] = Field(None, description="Discount percentage value if indicated (e.g., 30)")
+    category: Optional[str] = Field(None, description="Standard product category in Italian (e.g., 'Alimentari', 'Bevande')")
+    bbox: List[int] = Field(description="Bounding box coordinates [ymin, xmin, ymax, xmax] normalized from 0 to 1000 framing strictly the product packaging or photo itself, excluding text description blocks, price tags, background clutter, or other products.")
 
 
 class ExtractedOffersList(BaseModel):
+    """Pydantic wrapper for a list of ExtractedOffer objects."""
     offers: List[ExtractedOffer]
 
 
@@ -38,6 +47,7 @@ class OcrPageWrapper:
     substituting vector-embedded words with local OCR-extracted words.
     """
     def __init__(self, page: Any, words_list: List[Dict[str, Any]]) -> None:
+        """Initializes the OCR page wrapper."""
         self._page = page
         self.width = page.width
         self.height = page.height
@@ -45,6 +55,7 @@ class OcrPageWrapper:
         self._words = words_list
 
     def extract_words(self) -> List[Dict[str, Any]]:
+        """Returns the local OCR-extracted words list."""
         return self._words
 
 
@@ -74,10 +85,17 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         parallel: bool = False, 
         use_gemini: bool = False,
         use_claude: bool = False,
-        engine: str = "AUTO"
+        engine: str = "AUTO",
+        radius: int = 5,
+        choose_store: bool = False,
+        choose_flyer: bool = False
     ) -> None:
+        """Initializes the Abstract PDF Flyer Driver."""
         self._resolved_store_id: Optional[str] = None
         self.parallel = parallel
+        self.radius = radius
+        self.choose_store = choose_store
+        self.choose_flyer = choose_flyer
         
         # Unify engine parameter and legacy booleans
         self.engine = engine.upper().strip()
@@ -111,7 +129,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     @property
     @abstractmethod
     def _parser(self) -> Any:
-        """Semantic parser instance for isolating product fields from raw text blocks"""
+        """Semantic parser instance for isolating product fields from text blocks"""
         pass
 
     def download_flyers(self, store_id: str) -> List[str]:
@@ -126,17 +144,17 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         Locates target PDF catalog files, either dynamically downloading them via REST 
         or scanning the local filesystem.
         """
-        is_coord = re.match(r"^\s*[-+]?\d+(?:\.\d+)?\s*,\s*[-+]?\d+(?:\.\d+)?\s*$", store_id)
-        is_numeric_store = store_id.isdigit() and len(store_id) >= 4 and not store_id.endswith(".pdf")
+        is_pdf = store_id.lower().endswith(".pdf")
+        is_special = store_id.lower() in ("all", "downloads")
 
-        if (is_coord or is_numeric_store) and store_id.lower() not in ("all", "downloads"):
+        if not is_pdf and not is_special:
             logger.info(f"Checking for dynamic flyer downloads for store reference: '{store_id}'...")
             downloaded_paths = self.download_flyers(store_id)
             if downloaded_paths:
                 logger.info(f"REST Downloader retrieved {len(downloaded_paths)} flyers.")
                 return downloaded_paths
             else:
-                logger.warning(f"No dynamic flyers could be retrieved via REST. Trying filesystem scan as fallback...")
+                logger.warning("No flyers retrieved via REST. Trying filesystem scan as fallback...")
 
         pdf_paths: List[str] = []
         downloads_dir = self._download_subdir
@@ -166,7 +184,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     def parse_promotions(self, raw_data: Any, store_id: str) -> List[ProductOffer]:
         """
         Ingests the target PDF files and executes layout segmentation page-by-page,
-        normalizing extracted text blocks into product offers with crisp visual previews.
+        normalizing extracted text blocks into product offers with visual previews.
         Supports sequential and parallel multiprocessing modes.
         """
         if not isinstance(raw_data, list):
@@ -233,11 +251,10 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 total_pages = len(pdf.pages)
                 logger.info(f"Flyer has {total_pages} pages.")
                 
-                # Dynamic Vector vs Scanned Layout Detection (with optional driver override)
+                # Dynamic Vector vs Scanned Layout Detection
                 if self._current_is_vector is not None:
                     has_vector_text = self._current_is_vector
                 elif self.engine != "AUTO":
-                    # If a specific OCR engine (Gemini, Claude, Tesseract) is selected, completely skip vector grid parsing
                     has_vector_text = False
                 else:
                     has_vector_text = any(len(p.extract_words()) > 0 for p in pdf.pages)
@@ -315,9 +332,27 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 else:
                     logger.info("Scanned/Flat-image brochure detected. Engaging OCR visual extraction fallback...")
                     
-                    # Engine B.1: Gemini 2.5 Flash Multimodal Visual OCR
+                    # Unified system/visual prompts in English
+                    prompt = (
+                        "Role: You are an expert visual data and OCR extractor for Italian GDO (Grande Distribuzione Organizzata) promotional flyers.\n"
+                        "Task: Carefully analyze the image of this flyer page and accurately extract all commercial offers.\n\n"
+                        "Steps for each offer (step-by-step reasoning):\n"
+                        "1. Visually locate a specific product promotional card/section.\n"
+                        "2. Read the price (e.g., '1,49' -> convert to float 1.49) and any discount (e.g., '-30%'). If the price has euros and cents separated or minimized, combine them correctly.\n"
+                        "3. Identify the descriptive text of the product in Italian, isolating the name (name), the brand (brand, e.g., 'Mulino Bianco') and the format/weight (weight_or_volume, e.g., '400 g', '1,5 L', 'pack of 4 pieces').\n"
+                        "4. Identify the boundaries of the product PHOTO or its packaging. Focus strictly on the product object/packaging itself. Do NOT include any flyer text descriptions, price tags, brand logos (unless on the package), or adjacent product cards.\n"
+                        "5. Calculate the normalized coordinates [ymin, xmin, ymax, xmax] from 0 to 1000 framing ONLY the visual product package/photo with a tiny safety margin of 2-3% on all sides.\n\n"
+                        "Validation Rules:\n"
+                        "- Product Name (name): Write it in clean Title Case in Italian (e.g., 'Biscotti frollini integrali'). Do not include weights or brands here.\n"
+                        "- Brand (brand): Extract only the actual brand (if specified). If absent, leave null.\n"
+                        "- Category (category): Map the product to a standard Italian department (e.g., 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
+                        "- Bounding Box (bbox): Must frame ONLY the photo of the promotional article/packaging, leaving a tiny safety margin of 2-3% on all sides in the normalized system 0-1000 (ymin top, xmin left, ymax bottom, xmax right). Absolutely exclude text block descriptions, price tags/bubbles, and unrelated flyer graphics."
+                    )
+                    
+                    # Engine B.1: Gemini Multimodal Visual OCR
                     if self.use_gemini:
-                        logger.info("Using Gemini 2.5 Flash visual parsing API...")
+                        model_name = os.environ.get("GEMINI_MODEL_NAME", "gemini-2.5-pro")
+                        logger.info(f"Using Gemini {model_name} visual parsing API...")
                         from google import genai
                         from google.genai import types
                         from PIL import Image
@@ -331,22 +366,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             
                         client = genai.Client()
                         
-                        prompt = (
-                            "Ruolo: Sei un estrattore esperto di dati visivi e OCR per i volantini promozionali della GDO (Grande Distribuzione Organizzata) italiana.\n"
-                            "Task: Analizza attentamente l'immagine di questa pagina di volantino del supermercato ed estrai in modo accurato tutte le offerte commerciali.\n\n"
-                            "Fasi per ciascuna offerta (ragionamento step-by-step):\n"
-                            "1. Localizza visivamente una specifica scheda/sezione promozionale di prodotto.\n"
-                            "2. Leggi il prezzo (es. '1,49' -> convertilo in float 1.49) ed eventuali sconti (es. '-30%'). Se il prezzo ha euro e centesimi separati o rimpiccioliti, uniscili correttamente.\n"
-                            "3. Identifica il testo descrittivo del prodotto in italiano, isolando il nome (name), la marca (brand, es. 'Bio', 'Valis') e il formato/peso (weight_or_volume, es. '400 g', '1,5 L', 'confezione da 4 pezzi').\n"
-                            "4. Identifica i confini della FOTO del prodotto o del suo packaging. Lascia un comodo margine di sicurezza (un bordo o 'breathing room' extra di circa il 5-8%) attorno al prodotto per evitare che le estremità, i tappi o le etichette vengano tagliati.\n"
-                            "5. Calcola le coordinate normalizzate [ymin, xmin, ymax, xmax] da 0 a 1000 per l'immagine del prodotto.\n\n"
-                            "Regole di validazione:\n"
-                            "- Nome prodotto (name): Scrivilo in Title Case pulito (es. 'Biscotti frollini integrali'). Non includere pesi o marche qui.\n"
-                            "- Marca (brand): Estrai solo il brand reale (se indicato). Se assente, lascia null.\n"
-                            "- Categoria (category): Mappa il prodotto in un reparto italiano standard (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
-                            "- Rettangolo (bbox): Deve inquadrare la foto dell'articolo promozionale lasciando un piccolo margine di sicurezza del 5-8% su tutti i lati nel sistema normalizzato 0-1000 (ymin alto, xmin sinistra, ymax basso, xmax destra)."
-                        )
-                        
                         for page_idx in range(total_pages):
                             page = pdf.pages[page_idx]
                             logger.info(f"Processing Page {page_idx + 1}/{total_pages} via Gemini...")
@@ -358,14 +377,13 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                 continue
                                 
                             try:
-                                # Generation call wrapped in robust exponential backoff loop
                                 response = None
                                 max_retries = 3
                                 retry_backoff = 3
                                 for attempt in range(max_retries):
                                     try:
                                         response = client.models.generate_content(
-                                            model='gemini-2.5-flash',
+                                            model=model_name,
                                             contents=[pil_img, prompt],
                                             config=types.GenerateContentConfig(
                                                 response_mime_type="application/json",
@@ -404,7 +422,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
                                     offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                                     
-                                    # 1. Check for standard catalog or fuzzy reusable images
                                     from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
                                     image_url = get_standard_image(name)
                                     if not image_url:
@@ -419,11 +436,10 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                         px_x1 = int((xmax / 1000.0) * w_px)
                                         px_y1 = int((ymax / 1000.0) * h_px)
                                         
-                                        # Calculate safety margin padding of 6%
                                         box_w = px_x1 - px_x0
                                         box_h = px_y1 - px_y0
-                                        pad_x = int(box_w * 0.06)
-                                        pad_y = int(box_h * 0.06)
+                                        pad_x = int(box_w * 0.03)  # Refined 3% safety margin
+                                        pad_y = int(box_h * 0.03)
                                         
                                         crop_box = (
                                             max(0, px_x0 - pad_x),
@@ -438,7 +454,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                         
                                         try:
                                             cropped = pil_img.crop(crop_box)
-                                            # Apply white background auto-trimmer post-processing
                                             cropped = post_process_image_background(cropped)
                                             cropped.save(file_path, "PNG")
                                             image_url = f"/storage/images/{file_name}"
@@ -469,241 +484,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                 
                     # Engine B.2: Claude Haiku 4.5 Multimodal Visual OCR
                     elif self.use_claude:
-                        logger.info("Using Anthropic Claude Haiku 4.5 visual parsing API...")
-                        import anthropic
-                        import base64
-                        from PIL import Image
-                        import io
-                        
-                        if not os.environ.get("ANTHROPIC_API_KEY"):
-                            raise ValueError(
-                                "ANTHROPIC_API_KEY environment variable is missing. "
-                                "Please configure your API key or run with a different parsing engine."
-                            )
-                            
-                        client = anthropic.Anthropic()
-                        
-                        prompt = (
-                            "Ruolo: Sei un estrattore esperto di dati visivi e OCR per i volantini promozionali della GDO (Grande Distribuzione Organizzata) italiana.\n"
-                            "Task: Analizza attentamente l'immagine di questa pagina di volantino del supermercato ed estrai in modo accurato tutte le offerte commerciali.\n\n"
-                            "Fasi per ciascuna offerta (ragionamento step-by-step):\n"
-                            "1. Localizza visivamente una specifica scheda/sezione promozionale di prodotto.\n"
-                            "2. Leggi il prezzo (es. '1,49' -> convertilo in float 1.49) ed eventuali sconti (es. '-30%'). Se il prezzo ha euro e centesimi separati o rimpiccioliti, uniscili correttamente.\n"
-                            "3. Identifica il testo descrittivo del prodotto in italiano, isolando il nome (name), la marca (brand, es. 'Bio', 'Valis') e il formato/peso (weight_or_volume, es. '400 g', '1,5 L', 'confezione da 4 pezzi').\n"
-                            "4. Identifica i confini della FOTO del prodotto o del suo packaging. Lascia un comodo margine di sicurezza (un bordo o 'breathing room' extra di circa il 5-8%) attorno al prodotto per evitare che le estremità, i tappi o le etichette vengano tagliati.\n"
-                            "5. Calcola le coordinate normalizzate [ymin, xmin, ymax, xmax] da 0 a 1000 per l'immagine del prodotto.\n\n"
-                            "Regole di validazione:\n"
-                            "- Nome prodotto (name): Scrivilo in Title Case pulito (es. 'Biscotti frollini integrali'). Non includere pesi o marche qui.\n"
-                            "- Marca (brand): Estrai solo il brand reale (se indicato). Se assente, lascia null.\n"
-                            "- Categoria (category): Mappa il prodotto in un reparto italiano standard (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
-                            "- Rettangolo (bbox): Deve inquadrare la foto dell'articolo promozionale lasciando un piccolo margine di sicurezza del 5-8% su tutti i lati nel sistema normalizzato 0-1000 (ymin alto, xmin sinistra, ymax basso, xmax destra)."
-                        )
-                        
-                        tool_schema = {
-                            "name": "extract_offers",
-                            "description": "Estrae l'elenco delle offerte commerciali dal volantino promozionale.",
-                            "input_schema": {
-                                "type": "object",
-                                "properties": {
-                                    "offers": {
-                                        "type": "array",
-                                        "description": "Lista di tutte le offerte trovate nella pagina del volantino.",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "reasoning": {
-                                                    "type": "string",
-                                                    "description": "Ragionamento dettagliato step-by-step per identificare l'offerta e il suo box visivo."
-                                                },
-                                                "name": {
-                                                    "type": "string",
-                                                    "description": "Nome del prodotto in Title Case, in italiano. Escludere peso e marca."
-                                                },
-                                                "brand": {
-                                                    "type": "string",
-                                                    "description": "Marca del prodotto (es. 'Mulino Bianco'). Lasciare null se non specificato."
-                                                },
-                                                "weight_or_volume": {
-                                                    "type": "string",
-                                                    "description": "Formato, peso o volume del prodotto (es. '500g', '1L', '6 pezzi'). Lasciare null se non specificato."
-                                                },
-                                                "price": {
-                                                    "type": "number",
-                                                    "description": "Prezzo decimale dell'offerta (es. 1.99 o 0.85)."
-                                                },
-                                                "original_price": {
-                                                    "type": "number",
-                                                    "description": "Prezzo barrato/originale se visibile, altrimenti null."
-                                                },
-                                                "discount_percentage": {
-                                                    "type": "integer",
-                                                    "description": "Percentuale di sconto (es. 30 o 50). Lasciare null se non indicata."
-                                                },
-                                                "category": {
-                                                    "type": "string",
-                                                    "description": "Categoria merceologica in italiano (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona')."
-                                                },
-                                                "bbox": {
-                                                    "type": "array",
-                                                    "description": "Rettangolo di delimitazione del prodotto [ymin, xmin, ymax, xmax] normalizzato da 0 a 1000.",
-                                                    "items": {
-                                                        "type": "integer"
-                                                    }
-                                                }
-                                            },
-                                            "required": ["reasoning", "name", "price", "bbox"]
-                                        }
-                                    }
-                                },
-                                "required": ["offers"]
-                            }
-                        }
-                        
-                        for page_idx in range(total_pages):
-                            page = pdf.pages[page_idx]
-                            logger.info(f"Processing Page {page_idx + 1}/{total_pages} via Claude...")
-                            
-                            try:
-                                pil_img = page.to_image(resolution=120).original
-                            except Exception as render_err:
-                                logger.error(f"Failed to render page {page_idx + 1}: {render_err}")
-                                continue
-                                
-                            # Convert PIL image to base64 PNG
-                            buffered = io.BytesIO()
-                            pil_img.save(buffered, format="PNG")
-                            img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-                            
-                            try:
-                                response = None
-                                max_retries = 3
-                                retry_backoff = 3
-                                for attempt in range(max_retries):
-                                    try:
-                                        response = client.messages.create(
-                                            model=os.environ.get("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-latest"),
-                                            max_tokens=4000,
-                                            temperature=0.1,
-                                            system="Sei un estrattore esperto di dati visivi per volantini promozionali della GDO italiana.",
-                                            messages=[
-                                                {
-                                                    "role": "user",
-                                                    "content": [
-                                                        {
-                                                            "type": "image",
-                                                            "source": {
-                                                                "type": "base64",
-                                                                "media_type": "image/png",
-                                                                "data": img_base64
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "text",
-                                                            "text": prompt
-                                                        }
-                                                    ]
-                                                }
-                                            ],
-                                            tools=[tool_schema],
-                                            tool_choice={"type": "tool", "name": "extract_offers"}
-                                        )
-                                        break
-                                    except Exception as api_err:
-                                        if attempt == max_retries - 1:
-                                            raise api_err
-                                        logger.warning(
-                                            f"Claude API call failed (attempt {attempt + 1}/{max_retries}): {api_err}. "
-                                            f"Retrying in {retry_backoff} seconds..."
-                                        )
-                                        time.sleep(retry_backoff)
-                                        retry_backoff *= 2
-                                        
-                                if not response:
-                                    continue
-                                    
-                                # Parse the tool invocation inputs
-                                tool_use = next(block for block in response.content if block.type == "tool_use")
-                                offers = tool_use.input.get("offers", [])
-                                logger.info(f"Page {page_idx + 1}: Extracted {len(offers)} offers from Claude.")
-                                
-                                for idx, o in enumerate(offers):
-                                    name = o.get("name")
-                                    price = o.get("price")
-                                    if not name or price is None:
-                                        continue
-                                        
-                                    brand = o.get("brand")
-                                    weight = o.get("weight_or_volume")
-                                    orig_price = o.get("original_price")
-                                    discount = o.get("discount_percentage")
-                                    bbox = o.get("bbox")
-                                    category = o.get("category")
-                                    
-                                    payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
-                                    offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
-                                    
-                                    # 1. Check for standard catalog or fuzzy reusable images
-                                    from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
-                                    image_url = get_standard_image(name)
-                                    if not image_url:
-                                        image_url = find_reusable_image(self._supermarket_name, name)
-                                        
-                                    if not image_url and bbox and len(bbox) == 4:
-                                        ymin, xmin, ymax, xmax = bbox
-                                        w_px, h_px = pil_img.size
-                                        
-                                        px_x0 = int((xmin / 1000.0) * w_px)
-                                        px_y0 = int((ymin / 1000.0) * h_px)
-                                        px_x1 = int((xmax / 1000.0) * w_px)
-                                        px_y1 = int((ymax / 1000.0) * h_px)
-                                        
-                                        # Calculate safety margin padding of 6%
-                                        box_w = px_x1 - px_x0
-                                        box_h = px_y1 - px_y0
-                                        pad_x = int(box_w * 0.06)
-                                        pad_y = int(box_h * 0.06)
-                                        
-                                        crop_box = (
-                                            max(0, px_x0 - pad_x),
-                                            max(0, px_y0 - pad_y),
-                                            min(w_px, px_x1 + pad_x),
-                                            min(h_px, px_y1 + pad_y)
-                                        )
-                                        
-                                        os.makedirs("storage/images", exist_ok=True)
-                                        file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
-                                        file_path = os.path.join("storage/images", file_name)
-                                        
-                                        try:
-                                            cropped = pil_img.crop(crop_box)
-                                            # Apply white background auto-trimmer post-processing
-                                            cropped = post_process_image_background(cropped)
-                                            cropped.save(file_path, "PNG")
-                                            image_url = f"/storage/images/{file_name}"
-                                        except Exception as crop_err:
-                                            logger.debug(f"Pillow crop error: {crop_err}")
-                                            
-                                    offer = ProductOffer(
-                                        offer_id=offer_id,
-                                        supermarket=self._supermarket_name,
-                                        store_id=store_id,
-                                        name=name.capitalize(),
-                                        brand=brand,
-                                        weight_or_volume=weight,
-                                        price=price,
-                                        original_price=orig_price,
-                                        discount_percentage=discount,
-                                        price_per_unit=None,
-                                        ean_code=None,
-                                        image_url=image_url,
-                                        category=category,
-                                        promo_type="STANDARD",
-                                        validity_string=None
-                                    )
-                                    parsed_offers.append(offer)
-                            except Exception as page_api_err:
-                                logger.error(f"Claude page parsing failed: {page_api_err}")
-                                continue
+                        parsed_offers = self._parse_scanned_flyer_via_claude(file_path, store_id)
                                 
                     # Engine B.3: Local Offline Tesseract OCR (Default Fallback)
                     else:
@@ -724,7 +505,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                         import pytesseract
                         logger.info("Using local Tesseract OCR offline engine...")
                         
-                        # Validity String offline resolution
                         validity_string = None
                         if total_pages > 0:
                             first_page = pdf.pages[0]
@@ -739,7 +519,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             except Exception as e:
                                 logger.debug(f"Offline validity date extraction error: {e}")
                                 
-                        # Parse pages with Tesseract coordinate translation
                         for page_idx in range(total_pages):
                             page = pdf.pages[page_idx]
                             logger.info(f"Segmenting Page {page_idx + 1}/{total_pages} offline...")
@@ -808,7 +587,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         except Exception as e:
             logger.error(f"Critical failure while reading PDF {os.path.basename(file_path)}: {e}")
             
-        # Self-healing hit-rate fallback check
         if total_pages > 0:
             yield_per_page = len(parsed_offers) / max(1, total_pages)
             is_claude_already = (self.engine == "CLAUDE" or (has_vector_text is False and self.engine == "AUTO" and not self.use_gemini and self.use_claude))
@@ -839,17 +617,15 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
     ) -> Optional[str]:
         """
         Crops the card image using a pre-rendered Pillow image object and saves it locally.
-        Uses a perfect uniform grid-snapping algorithm if column metadata is available.
+        Uses a uniform grid-snapping algorithm if column metadata is available.
         """
         from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
         
         if product_name:
-            # 1. Standard product catalog match
             std_url = get_standard_image(product_name)
             if std_url:
                 return std_url
             
-            # 2. Fuzzy semantic image reuse
             reusable_url = find_reusable_image(self._supermarket_name, product_name)
             if reusable_url:
                 return reusable_url
@@ -872,7 +648,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             scale_x = img_w / page_w
             scale_y = img_h / page_h
             
-            # Locate matching embedded native raster image in column vertical bounds
             best_img = None
             if col_idx is not None and col_count is not None and col_count > 0:
                 col_w = page_w / col_count
@@ -902,7 +677,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                     best_img = matching_images[0]
             
             if best_img:
-                # Tight, isolated crop centered exactly on the native visual package image
                 pad = 2.0
                 ix0 = max(0.0, best_img["x0"] - pad)
                 iy0 = max(0.0, best_img["top"] - pad)
@@ -921,7 +695,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                     min(img_h, bottom_px)
                 )
             else:
-                # Fallback to perfect uniform column vertical card grid crop
                 if col_idx is not None and col_count is not None and col_count > 0:
                     col_w = page_w / col_count
                     x0 = col_idx * col_w
@@ -949,7 +722,6 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 )
             
             cropped_img = pil_img.crop(crop_box)
-            # Apply white background auto-trimmer post-processing
             cropped_img = post_process_image_background(cropped_img)
             cropped_img.save(file_path, "PNG")
             return db_url
@@ -958,9 +730,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             return None
 
     def _log_missed_product(self, file_path: str, page_idx: int, reason: str, text: str) -> None:
-        """
-        Logs skipped parsed cells containing price keywords for manual audit.
-        """
+        """Logs skipped parsed cells containing price keywords for manual audit."""
         log_file = "storage/missed_products.log"
         os.makedirs(os.path.dirname(log_file), exist_ok=True)
         
@@ -976,9 +746,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             logger.error(f"Failed to write to missed products log: {e}")
 
     def _parse_scanned_flyer_via_claude(self, file_path: str, store_id: str) -> List[ProductOffer]:
-        """
-        Executes scanned flyer OCR visual parsing using Anthropic's Claude API as a fallback.
-        """
+        """Executes scanned flyer OCR visual parsing using Anthropic's Claude API as a fallback."""
         import anthropic
         import base64
         import io
@@ -993,68 +761,68 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         client = anthropic.Anthropic()
         
         prompt = (
-            "Ruolo: Sei un estrattore esperto di dati visivi e OCR per i volantini promozionali della GDO (Grande Distribuzione Organizzata) italiana.\n"
-            "Task: Analizza attentamente l'immagine di questa pagina di volantino del supermercato ed estrai in modo accurato tutte le offerte commerciali.\n\n"
-            "Fasi per ciascuna offerta (ragionamento step-by-step):\n"
-            "1. Localizza visivamente una specifica scheda/sezione promozionale di prodotto.\n"
-            "2. Leggi il prezzo (es. '1,49' -> convertilo in float 1.49) ed eventuali sconti (es. '-30%'). Se il prezzo ha euro e centesimi separati o rimpiccioliti, uniscili correttamente.\n"
-            "3. Identifica il testo descrittivo del prodotto in italiano, isolando il nome (name), la marca (brand, es. 'Bio', 'Valis') e il formato/peso (weight_or_volume, es. '400 g', '1,5 L', 'confezione da 4 pezzi').\n"
-            "4. Identifica i confini della FOTO del prodotto o del suo packaging. Lascia un comodo margine di sicurezza (un bordo o 'breathing room' extra di circa il 5-8%) attorno al prodotto per evitare che le estremità, i tappi o le etichette vengano tagliati.\n"
-            "5. Calcola le coordinate normalizzate [ymin, xmin, ymax, xmax] da 0 a 1000 per l'immagine del prodotto.\n\n"
-            "Regole di validazione:\n"
-            "- Nome prodotto (name): Scrivilo in Title Case pulito (es. 'Biscotti frollini integrali'). Non includere pesi o marche qui.\n"
-            "- Marca (brand): Estrai solo il brand reale (se indicato). Se assente, lascia null.\n"
-            "- Categoria (category): Mappa il prodotto in un reparto italiano standard (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
-            "- Rettangolo (bbox): Deve inquadrare la foto dell'articolo promozionale lasciando un piccolo margine di sicurezza del 5-8% su tutti i lati nel sistema normalizzato 0-1000 (ymin alto, xmin sinistra, ymax basso, xmax destra)."
+            "Role: You are an expert visual data and OCR extractor for Italian GDO (Grande Distribuzione Organizzata) promotional flyers.\n"
+            "Task: Carefully analyze the image of this flyer page and accurately extract all commercial offers.\n\n"
+            "Steps for each offer (step-by-step reasoning):\n"
+            "1. Visually locate a specific product promotional card/section.\n"
+            "2. Read the price (e.g., '1,49' -> convert to float 1.49) and any discount (e.g., '-30%'). If the price has euros and cents separated or minimized, combine them correctly.\n"
+            "3. Identify the descriptive text of the product in Italian, isolating the name (name), the brand (brand, e.g., 'Mulino Bianco') and the format/weight (weight_or_volume, e.g., '400 g', '1,5 L', 'pack of 4 pieces').\n"
+            "4. Identify the boundaries of the product PHOTO or its packaging. Focus strictly on the product object/packaging itself. Do NOT include any flyer text descriptions, price tags, brand logos (unless on the package), or adjacent product cards.\n"
+            "5. Calculate the normalized coordinates [ymin, xmin, ymax, xmax] from 0 to 1000 framing ONLY the visual product package/photo with a tiny safety margin of 2-3% on all sides.\n\n"
+            "Validation Rules:\n"
+            "- Product Name (name): Write it in clean Title Case in Italian (e.g., 'Biscotti frollini integrali'). Do not include weights or brands here.\n"
+            "- Brand (brand): Extract only the actual brand (if specified). If absent, leave null.\n"
+            "- Category (category): Map the product to a standard Italian department (e.g., 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
+            "- Bounding Box (bbox): Must frame ONLY the photo of the promotional article/packaging, leaving a tiny safety margin of 2-3% on all sides in the normalized system 0-1000 (ymin top, xmin left, ymax bottom, xmax right). Absolutely exclude text block descriptions, price tags/bubbles, and unrelated flyer graphics."
         )
         
         tool_schema = {
             "name": "extract_offers",
-            "description": "Estrae l'elenco delle offerte commerciali dal volantino promozionale.",
+            "description": "Extracts the list of commercial offers from the promotional flyer.",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "offers": {
                         "type": "array",
-                        "description": "Lista di tutte le offerte trovate nella pagina del volantino.",
+                        "description": "List of all offers found on the flyer page.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "reasoning": {
                                     "type": "string",
-                                    "description": "Ragionamento dettagliato step-by-step per identificare l'offerta e il suo box visivo."
+                                    "description": "Chain-of-Thought reasoning: 1. Describe the packaging visually (e.g. colors, shape, features, graphics). 2. Find the product name, brand, weight and price. 3. Define the precise bounding box enclosing ONLY the packaging/product image itself, excluding price bubbles or text."
                                 },
                                 "name": {
                                     "type": "string",
-                                    "description": "Nome del prodotto in Title Case, in italiano. Escludere peso e marca."
+                                    "description": "Name of the product in Title Case, in Italian. Exclude brand and weight."
                                 },
                                 "brand": {
                                     "type": "string",
-                                    "description": "Marca del prodotto (es. 'Mulino Bianco'). Lasciare null se non specificato."
+                                    "description": "Product brand (e.g., 'Mulino Bianco'). Leave null if not specified."
                                 },
                                 "weight_or_volume": {
                                     "type": "string",
-                                    "description": "Formato, peso o volume del prodotto (es. '500g', '1L', '6 pezzi'). Lasciare null se non specificato."
+                                    "description": "Format, weight or volume of the product (e.g., '500g', '1L', '6 pieces'). Leave null if not specified."
                                 },
                                 "price": {
                                     "type": "number",
-                                    "description": "Prezzo decimale dell'offerta (es. 1.99 o 0.85)."
+                                    "description": "Decimal price of the offer (e.g., 1.99 or 0.85)."
                                 },
                                 "original_price": {
                                     "type": "number",
-                                    "description": "Prezzo barrato/originale se visibile, altrimenti null."
+                                    "description": "Original pre-discount price if visible, otherwise null."
                                 },
                                 "discount_percentage": {
                                     "type": "integer",
-                                    "description": "Percentuale di sconto (es. 30 o 50). Lasciare null se non indicata."
+                                    "description": "Discount percentage (e.g., 30 or 50). Leave null if not indicated."
                                 },
                                 "category": {
                                     "type": "string",
-                                    "description": "Categoria merceologica in italiano (es. 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona')."
+                                    "description": "Standard Italian product category (e.g., 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona')."
                                 },
                                 "bbox": {
                                     "type": "array",
-                                    "description": "Rettangolo di delimitazione del prodotto [ymin, xmin, ymax, xmax] normalizzato da 0 a 1000.",
+                                    "description": "Product bounding box [ymin, xmin, ymax, xmax] normalized from 0 to 1000 framing strictly the product packaging or photo itself, excluding text description blocks, price tags, background clutter, or other products.",
                                     "items": {
                                         "type": "integer"
                                     }
@@ -1097,7 +865,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     model=os.environ.get("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-latest"),
                                     max_tokens=4000,
                                     temperature=0.1,
-                                    system="Sei un estrattore esperto di dati visivi per volantini promozionali della GDO italiana.",
+                                    system="You are an expert visual data extractor for Italian GDO promotional flyers.",
                                     messages=[
                                         {
                                             "role": "user",
@@ -1171,8 +939,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                 
                                 box_w = px_x1 - px_x0
                                 box_h = px_y1 - px_y0
-                                pad_x = int(box_w * 0.06)
-                                pad_y = int(box_h * 0.06)
+                                pad_x = int(box_w * 0.03)  # Refined 3% safety margin
+                                pad_y = int(box_h * 0.03)
                                 
                                 crop_box = (
                                     max(0, px_x0 - pad_x),

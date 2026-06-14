@@ -3,8 +3,19 @@ import os
 import sys
 import time
 import shutil
-import sqlite3
 import subprocess
+
+# Load local environment variables if .env file exists
+if os.path.exists(".env"):
+    try:
+        with open(".env") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k, v = stripped.split("=", 1)
+                    os.environ[k.strip()] = v.strip().strip("'\"")
+    except Exception:
+        pass
 
 def get_python_executable():
     """Returns the path to the current virtual environment python executable or fallback to sys.executable."""
@@ -332,62 +343,62 @@ def launch_dashboard():
     input(f"\nPress Enter to return to main menu...")
 
 def display_db_stats():
-    """Queries and displays analytics from the SQLite promotions database."""
-    print(f"\n{GREEN}{BOLD}=== SQLITE DATABASE ANALYTICS ==={RESET}")
-    db_path = "storage/promotions.db"
-    if not os.path.exists(db_path):
-        print(f"{RED}Database not found at '{db_path}'. Run a scraper first to initialize it!{RESET}")
-        input("\nPress Enter to return to main menu...")
-        return
+    """Queries and displays analytics from the active database storage engine."""
+    print(f"\n{GREEN}{BOLD}=== DATABASE ANALYTICS ==={RESET}")
+    
+    from storage.database import get_storage
+    storage = get_storage()
+    engine = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
+    
+    if engine != "supabase":
+        db_path = getattr(storage, "db_path", "storage/promotions.db")
+        if not os.path.exists(db_path):
+            print(f"{RED}Database not found at '{db_path}'. Run a scraper first to initialize it!{RESET}")
+            input("\nPress Enter to return to main menu...")
+            return
         
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+        breakdown = storage.get_stats()
+        total_promos = sum(b.get("total_offers", 0) for b in breakdown)
         
-        # 1. Total promos count
-        cursor.execute("SELECT count(*) FROM promotions")
-        total_promos = cursor.fetchone()[0]
+        # In-memory category count estimation from offers list
+        offers = storage.get_offers()
+        category_counts = {}
+        for o in offers:
+            cat = o.get("category")
+            if cat and cat.strip():
+                category_counts[cat] = category_counts.get(cat, 0) + 1
+        top_cats = sorted(category_counts.items(), key=lambda x: x[1], reverse=True)[:5]
         
-        # 2. Aggregates by supermarket & store ID
-        cursor.execute("""
-            SELECT supermarket, store_id, count(*), min(price), max(price) 
-            FROM promotions 
-            GROUP BY supermarket, store_id
-            ORDER BY count(*) DESC
-        """)
-        rows = cursor.fetchall()
-        
-        # 3. Print stats
-        print(f"Database File: {MAGENTA}{db_path}{RESET}")
+        if engine == "supabase":
+            url = getattr(storage, "url", "Supabase")
+            print(f"Database: {MAGENTA}{url} (Supabase){RESET}")
+        else:
+            db_path = getattr(storage, "db_path", "storage/promotions.db")
+            print(f"Database File: {MAGENTA}{db_path}{RESET}")
+            
         print(f"Total Promotion Offers Stored: {CYAN}{BOLD}{total_promos}{RESET}")
         print("\n" + "="*70)
         print(f"{BOLD}{'SUPERMARKET':15} | {'STORE ID':10} | {'OFFERS':10} | {'MIN PRICE':10} | {'MAX PRICE':10}{RESET}")
         print("-"*70)
-        for row in rows:
-            superm, store, count, min_pr, max_pr = row
-            min_pr = f"{min_pr:.2f} €" if min_pr is not None else "N/A"
-            max_pr = f"{max_pr:.2f} €" if max_pr is not None else "N/A"
-            print(f"{superm:15} | {store:10} | {count:10d} | {min_pr:10} | {max_pr:10}")
+        for row in breakdown:
+            superm = row.get("supermarket", "N/A")
+            store = row.get("store_id", "N/A")
+            count = row.get("total_offers", 0)
+            min_pr = row.get("min_price")
+            max_pr = row.get("max_price")
+            min_pr_str = f"{min_pr:.2f} €" if min_pr is not None else "N/A"
+            max_pr_str = f"{max_pr:.2f} €" if max_pr is not None else "N/A"
+            print(f"{superm:15} | {store:10} | {count:10d} | {min_pr_str:10} | {max_pr_str:10}")
         print("="*70)
         
-        # 4. Show top categories
-        cursor.execute("""
-            SELECT category, count(*) 
-            FROM promotions 
-            WHERE category IS NOT NULL AND category != ''
-            GROUP BY category 
-            ORDER BY count(*) DESC 
-            LIMIT 5
-        """)
-        top_cats = cursor.fetchall()
         if top_cats:
             print(f"\n{BOLD}Top 5 Popular Scraped Categories:{RESET}")
             for cat, cnt in top_cats:
                 print(f"  - {cat:20} : {cnt} offers")
                 
-        conn.close()
-    except sqlite3.Error as e:
-        print(f"{RED}SQLite Error while querying statistics: {e}{RESET}")
+    except Exception as e:
+        print(f"{RED}Error while querying database statistics: {e}{RESET}")
         
     input("\nPress Enter to return to main menu...")
 
@@ -412,12 +423,23 @@ def dev_tools_menu():
         choice = input("Select developer option [1-8]: ").strip()
         
         if choice == "1":
-            db_path = "storage/promotions.db"
-            if os.path.exists(db_path):
-                os.remove(db_path)
-                print(f"\n{GREEN}Database '{db_path}' cleared successfully!{RESET}")
+            from storage.database import get_storage
+            storage = get_storage()
+            engine = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
+            if engine == "supabase":
+                confirm = input(f"{RED}{BOLD}WARNING: Clear all records from Supabase promotions table? [y/N]: {RESET}").strip().lower()
+                if confirm == "y":
+                    if storage.clear_all():
+                        print(f"\n{GREEN}Supabase database cleared successfully!{RESET}")
+                    else:
+                        print(f"\n{RED}Failed to clear Supabase database.{RESET}")
             else:
-                print(f"\n{YELLOW}Database '{db_path}' does not exist.{RESET}")
+                db_path = getattr(storage, "db_path", "storage/promotions.db")
+                if os.path.exists(db_path):
+                    os.remove(db_path)
+                    print(f"\n{GREEN}Database '{db_path}' cleared successfully!{RESET}")
+                else:
+                    print(f"\n{YELLOW}Database '{db_path}' does not exist.{RESET}")
             time.sleep(1.5)
             
         elif choice == "2":
@@ -441,6 +463,13 @@ def dev_tools_menu():
         elif choice == "4":
             confirm = input(f"{RED}{BOLD}WARNING: This will wipe ALL databases, downloaded PDFs, and cropped images! Proceed? [y/N]: {RESET}").strip().lower()
             if confirm == "y":
+                from storage.database import get_storage
+                storage = get_storage()
+                engine = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
+                if engine == "supabase":
+                    storage.clear_all()
+                    print(f"\n{GREEN}Supabase promotions table cleared!{RESET}")
+                
                 for path in ["storage/promotions.db", "storage/images", "downloads/conad", "downloads/ins"]:
                     if os.path.exists(path):
                         if os.path.isdir(path):
@@ -498,6 +527,128 @@ def dev_tools_menu():
             print(f"\n{RED}Invalid choice! Press Enter to try again...{RESET}")
             input()
 
+
+def get_running_pids(script_name: str) -> list:
+    """Finds all python PIDs running a specific script name, excluding the current process."""
+    try:
+        output = subprocess.check_output(["pgrep", "-f", script_name], text=True)
+        pids = []
+        my_pid = os.getpid()
+        for line in output.split("\n"):
+            line = line.strip()
+            if line and line.isdigit():
+                pid = int(line)
+                if pid != my_pid:
+                    # Double check it is actually a python process running the target script
+                    try:
+                        with open(f"/proc/{pid}/cmdline", "rb") as f:
+                            cmdline = f.read().decode("utf-8", errors="ignore")
+                        # cmdline uses null bytes to separate args in /proc
+                        cmd_args = cmdline.split("\x00")
+                        has_python = any("python" in arg for arg in cmd_args)
+                        has_script = any(script_name in arg for arg in cmd_args)
+                        if has_python and has_script:
+                            pids.append(pid)
+                    except Exception:
+                        pass
+        return pids
+    except subprocess.CalledProcessError:
+        return []
+
+
+def kill_processes(script_name: str) -> int:
+    """Terminates all processes running a specific script. Returns the count of terminated processes."""
+    import signal
+    pids = get_running_pids(script_name)
+    if not pids:
+        return 0
+        
+    # Send SIGTERM first
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except Exception:
+            pass
+            
+    # Wait up to 2 seconds for graceful shutdown
+    start = time.time()
+    while time.time() - start < 2.0:
+        still_running = get_running_pids(script_name)
+        if not still_running:
+            break
+        time.sleep(0.2)
+        
+    # Force kill any remaining processes
+    remaining = get_running_pids(script_name)
+    for pid in remaining:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except Exception:
+            pass
+            
+    return len(pids)
+
+
+def shutdown_all_processes(silent=False):
+    """Finds and terminates all active dashboard and scraper processes."""
+    if not silent:
+        print(f"\n{RED}{BOLD}=== SHUTTING DOWN PROCESSES ==={RESET}")
+    
+    scrapers_killed = kill_processes("main.py")
+    if not silent:
+        if scrapers_killed > 0:
+            print(f"{GREEN}Terminated {scrapers_killed} running scraper processes.{RESET}")
+        else:
+            print(f"No running scrapers found.")
+            
+    dashboards_killed = kill_processes("dashboard.py")
+    if not silent:
+        if dashboards_killed > 0:
+            print(f"{GREEN}Terminated {dashboards_killed} running dashboard server processes.{RESET}")
+        else:
+            print(f"No running dashboard server found.")
+            
+    if not silent:
+        print(f"\n{GREEN}{BOLD}Shutdown sequence completed.{RESET}")
+        input("\nPress Enter to continue...")
+
+
+def hard_reload_system():
+    """Shuts down all processes, starts a fresh background dashboard, and reboots the interactive CLI."""
+    print(f"\n{RED}{BOLD}=== HARD RELOADING SYSTEM ==={RESET}")
+    print("Initiating full shutdown of all processes...")
+    
+    # 1. Terminate everything
+    shutdown_all_processes(silent=True)
+    
+    # 2. Launch dashboard.py in background
+    print("Restarting dashboard server in background...")
+    log_dir = "storage/logs"
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "dashboard_reboot.log")
+    try:
+        log_file = open(log_path, "a", encoding="utf-8")
+        log_file.write(f"\n--- REBOOT SYSTEM START {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        log_file.flush()
+        
+        # Start background server
+        subprocess.Popen(
+            [PYTHON_EXE, "dashboard.py"],
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            close_fds=True
+        )
+        print(f"{GREEN}Dashboard server launched (logs at {log_path}).{RESET}")
+    except Exception as e:
+        print(f"{RED}Failed to restart dashboard: {e}{RESET}")
+        
+    print(f"\n{GREEN}{BOLD}Rebooting interactive control CLI...{RESET}")
+    time.sleep(1.5)
+    
+    # 3. Re-execute TUI cleanly
+    os.execv(PYTHON_EXE, [PYTHON_EXE, "run_interactive.py"])
+
+
 def main_menu():
     """Renders the main menu interface loop for the GDO Scraper CLI."""
     while True:
@@ -510,12 +661,14 @@ def main_menu():
         print(f"  [{GREEN}4{RESET}] {BOLD}DPIÙ{RESET}: Scrape API promotions (REST Dynamic OAuth2)")
         print(f"  [{GREEN}5{RESET}] {BOLD}MANUAL{RESET}: Scrape a manually uploaded PDF flyer")
         print(f"  [{GREEN}6{RESET}] {BOLD}DASHBOARD{RESET}: Launch visual verification server SPA")
-        print(f"  [{GREEN}7{RESET}] {BOLD}STATS{RESET}: Display SQLite database analytics")
+        print(f"  [{GREEN}7{RESET}] {BOLD}STATS{RESET}: Display database analytics")
         print(f"  [{RED}8{RESET}] {BOLD}DEV TOOLS{RESET}: Developer utilities & benchmark presets")
-        print(f"  [{RED}9{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
+        print(f"  [{RED}9{RESET}] {BOLD}SHUTDOWN{RESET}: Kill all scraper & dashboard processes")
+        print(f"  [{RED}10{RESET}] {BOLD}HARD RELOAD{RESET}: Shutdown everything and reboot the TUI")
+        print(f"  [{RED}11{RESET}] {BOLD}EXIT{RESET}: Close control CLI")
         print()
         
-        choice = input("Select an option [1-9]: ").strip()
+        choice = input("Select an option [1-11]: ").strip()
         if choice == "1":
             scrape_coop_menu()
         elif choice == "2":
@@ -533,6 +686,10 @@ def main_menu():
         elif choice == "8":
             dev_tools_menu()
         elif choice == "9":
+            shutdown_all_processes()
+        elif choice == "10":
+            hard_reload_system()
+        elif choice == "11":
             print(f"\n{CYAN}Thank you for using GDO Scraper. Goodbye!{RESET}\n")
             sys.exit(0)
         else:

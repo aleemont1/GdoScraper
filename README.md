@@ -4,6 +4,14 @@ GDO Scraper è una pipeline ETL (Extract, Transform, Load) modulare, determinist
 
 Il sistema gestisce l'estrazione dati sia da API REST dinamiche (**Coop**, **Dpiù**) sia tramite visual parsing avanzato di volantini PDF geometrici (**Conad**, **IN'S**), esportando i record in un database SQLite centralizzato e salvando i ritagli delle immagini dei prodotti ripuliti da sovrapposizioni testuali.
 
+
+Per consultare le guide dettagliate, visita la directory `docs/`:
+* [Guida all'Installazione Avanzata](docs/installation.md)
+* [Architettura del Sistema e Algoritmi](docs/architecture.md)
+* [Guida ai Comandi CLI](docs/cli_reference.md)
+* [Guida all'Interfaccia TUI](docs/tui_reference.md)
+* [Guida alla Dashboard Web](docs/dashboard_reference.md)
+
 ---
 
 ## 1. Architettura e Flusso Dati
@@ -55,7 +63,7 @@ Il progetto richiede **Python 3.10+** ed utilizza **`uv`** come package manager 
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Configurazione del progetto
-git clone https://github.com/tuo-username/supermarket_scraper.git
+git clone https://github.com/aleemont1/supermarket_scraper.git
 cd supermarket_scraper
 uv venv
 source .venv/bin/activate
@@ -68,7 +76,7 @@ uv sync
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 # Configurazione del progetto
-git clone https://github.com/tuo-username/supermarket_scraper.git
+git clone https://github.com/aleemont1/supermarket_scraper.git
 cd supermarket_scraper
 uv venv
 .venv\Scripts\Activate.ps1
@@ -80,6 +88,17 @@ Crea un file `.env` nella root del progetto per configurare le chiavi API opzion
 ```ini
 GEMINI_API_KEY="la_tua_chiave_gemini"
 ANTHROPIC_API_KEY="la_tua_chiave_claude"
+
+#CLAUDE_MODEL_NAME="claude-haiku-4-5"
+CLAUDE_MODEL_NAME="claude-sonnet-4-6"
+#CLAUDE_MODEL_NAME="claude-opus-4-8"
+
+# # Storage Engine Selection (choose sqlite for local DB OR supabase)
+DB_ENGINE=sqlite
+# DB_ENGINE=supabase
+# # Supabase Credentials
+# SUPABASE_URL="https://your-project-id.supabase.co"
+# SUPABASE_KEY="la_tua_chiave_supabase"
 ```
 
 ---
@@ -139,12 +158,6 @@ La dashboard web ti permette di visionare l'esito dello scraping, i log di esecu
 <!-- Sostituire questo placeholder con uno screenshot della dashboard principale (http://localhost:8000) mostrando la mappa dei negozi, la selezione volantini e la console dei log -->
 ![Dashboard Principal Interface Placeholder](docs/images/dashboard_main.png)
 
-### Caratteristiche:
-* **Selezione Volantini con Anteprima**: È presente un'icona (**👁**) a fianco di ciascun volantino trovato per aprire in un'altra scheda l'anteprima PDF o la pagina web ufficiale e verificare il volantino prima dello scraping.
-* **Console di Monitoraggio**: Un terminale integrato e perfettamente scrollabile mostra in tempo reale i log del processo di estrazione in background.
-* **Tabella di Audit**: Visualizza i prezzi, le percentuali di sconto, le date di validità e le immagini del prodotto.
-* **HD Zoom**: Passando il mouse sopra l'immagine ritagliata del prodotto, viene mostrato un ingrandimento in alta definizione per valutare la precisione geometrica del crop.
-
 <!-- Sostituire questo placeholder con uno screenshot del pannello di audit inferiore della dashboard, evidenziando il funzionamento dello zoom ad alta risoluzione al passaggio del mouse sopra un prodotto ritagliato -->
 ![Dashboard Audit Grid & Zoom Placeholder](docs/images/dashboard_audit.png)
 
@@ -159,10 +172,3 @@ Il progetto include uno script per generare automaticamente la documentazione te
 ./docs/generate.sh
 ```
 La documentazione HTML verrà creata nella cartella `docs/api/`. Puoi visualizzarla aprendo il file `docs/api/index.html` in qualunque browser.
-
-Per consultare le guide dettagliate scritte a mano, visita la directory `docs/`:
-* [Guida all'Installazione Avanzata](docs/installation.md)
-* [Architettura del Sistema e Algoritmi](docs/architecture.md)
-* [Guida ai Comandi CLI](docs/cli_reference.md)
-* [Guida all'Interfaccia TUI](docs/tui_reference.md)
-* [Guida alla Dashboard Web](docs/dashboard_reference.md)

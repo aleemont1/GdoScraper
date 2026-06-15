@@ -138,6 +138,24 @@ def test_parse_helpers():
     assert parser.de_space_uppercase("DI B A R I") == "DI BARI"
 
 
+def test_conad_unit_price_parsing():
+    """Verifies that ConadOfferParser correctly extracts unit prices and removes them from selling prices."""
+    from drivers.conad.offer_parser import ConadOfferParser
+    
+    parser = ConadOfferParser()
+    
+    # 1. Simple package price and unit price (euros and cents separated by text/spaces)
+    text1 = "Mozzarella di Bufala BARILLA 500g 4,98 € al kg 9,96 €"
+    offer1 = parser.parse_cell(text1, "005635", "DAL 1 AL 10 MAGGIO 2026")
+    assert offer1.price == 4.98
+    assert "9,96" in offer1.price_per_unit
+    
+    # 2. Case with spacing and symbols
+    text2 = "Detersivo Lavatrice DASH 1,5 L 2,49 € al lt 1,66 €"
+    offer2 = parser.parse_cell(text2, "005635", "DAL 1 AL 10 MAGGIO 2026")
+    assert offer2.price == 2.49
+
+
 def test_standard_image_lookup():
     """Tests product name standard fresh produce image mappings."""
     # Matches fresh fruit

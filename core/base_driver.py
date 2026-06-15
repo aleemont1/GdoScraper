@@ -315,10 +315,10 @@ class AbstractOfferParser(ABC):
         
         self._discount_pct = re.compile(r"-(\d+)\s*%")
         
-        # Unit price patterns supporting spaced commas
+        # Unit price patterns supporting spaced commas and flexible units
         self._unit_price_patterns = [
-            re.compile(r"(?:€/kg|€/l|€/lt|€/pz|al kg|al lt|al pz|€/cad)\s*(\d+)\s*,\s*(\d{2})", re.IGNORECASE),
-            re.compile(r"(\d+)\s*,\s*(\d{2})\s*(?:€/kg|€/l|€/lt|€/pz|al kg|al lt|al pz|€/cad)", re.IGNORECASE)
+            re.compile(r"(?:€\s*/\s*|€\s*al\s*|al\s*|/|€\s*cad\s*|cad\s*)(?:kg|l|lt|pz|cad)\s*(\d+)\s*,\s*(\d{2})", re.IGNORECASE),
+            re.compile(r"(\d+)\s*,\s*(\d{2})\s*(?:€\s*/\s*|/|€\s*cad\s*|cad\s*|€\s+)(?:kg|l|lt|pz|cad)", re.IGNORECASE)
         ]
         
         # Weight / Volume patterns

@@ -285,6 +285,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             continue
                             
                         rendered_page_img = None
+                        page_offers = []
                         
                         for cell in cells:
                             try:
@@ -311,8 +312,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                         )
                                         
                                     offer.supermarket = self._supermarket_name
-                                    parsed_offers.append(offer)
-                                    flyer_offers_count += 1
+                                    page_offers.append(offer)
                             except ValueError as parse_err:
                                 logger.debug(f"Cell parsing ValueError: {parse_err}")
                                 cell_text = cell["text"]
@@ -326,6 +326,27 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             except Exception as parse_err:
                                 logger.debug(f"Cell parsing unexpected exception: {parse_err}")
                                 
+                        if self.use_claude and os.environ.get("ANTHROPIC_API_KEY"):
+                            if rendered_page_img is None or rendered_page_img is False:
+                                try:
+                                    rendered_page_img = page.to_image(resolution=120).original
+                                except Exception as render_err:
+                                    logger.error(f"Failed to render page image for Claude visual audit: {render_err}")
+                                    rendered_page_img = False
+                                    
+                            if rendered_page_img and rendered_page_img is not False:
+                                page_offers = self._audit_and_self_heal_page_via_claude(
+                                    rendered_page_img,
+                                    store_id,
+                                    page_idx,
+                                    page_offers,
+                                    validity_string
+                                )
+                                
+                        for offer in page_offers:
+                            parsed_offers.append(offer)
+                            flyer_offers_count += 1
+                            
                     logger.info(f"Finished parsing vector flyer {os.path.basename(file_path)}. Extracted {flyer_offers_count} products.")
                 
                 # --- STRATEGY B: Scanned PDF / Image-Only Brochure Parsing ---
@@ -649,11 +670,18 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             scale_y = img_h / page_h
             
             best_img = None
-            if col_idx is not None and col_count is not None and col_count > 0:
+            if bbox and len(bbox) >= 3:
+                grid_x0 = bbox[0]
+                grid_x1 = bbox[2]
+            elif col_idx is not None and col_count is not None and col_count > 0:
                 col_w = page_w / col_count
                 grid_x0 = col_idx * col_w
                 grid_x1 = (col_idx + 1) * col_w
+            else:
+                grid_x0 = 0
+                grid_x1 = page_w
                 
+            if grid_x0 is not None and grid_x1 is not None:
                 matching_images = []
                 for img in getattr(page, "images", []):
                     img_x0 = img.get("x0", 0)
@@ -695,16 +723,22 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                     min(img_h, bottom_px)
                 )
             else:
-                if col_idx is not None and col_count is not None and col_count > 0:
+                if bbox and len(bbox) >= 3:
+                    x0 = bbox[0]
+                    x1 = bbox[2]
+                elif col_idx is not None and col_count is not None and col_count > 0:
                     col_w = page_w / col_count
                     x0 = col_idx * col_w
                     x1 = (col_idx + 1) * col_w
                 else:
-                    x0, x1 = bbox[0], bbox[2]
-                    w = x1 - x0
-                    if w < 120:
-                        x0 = max(0, x0 - 130)
-                        x1 = min(page_w, x1 + 15)
+                    x0 = 0
+                    x1 = page_w
+                
+                # Apply margin safeguards if bounds are narrow
+                w = x1 - x0
+                if w < 120 and bbox and len(bbox) >= 3:
+                    x0 = max(0.0, bbox[0] - 130)
+                    x1 = min(page_w, bbox[2] + 15)
                 
                 x0_px = int(x0 * scale_x)
                 x1_px = int(x1 * scale_x)
@@ -986,3 +1020,260 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             logger.error(f"[Self-Healing] Fallback execution failed: {e}")
             
         return claude_offers
+
+    def _audit_and_self_heal_page_via_claude(
+        self,
+        pil_img: Any,
+        store_id: str,
+        page_idx: int,
+        initial_offers: List[ProductOffer],
+        validity_string: Optional[str] = None
+    ) -> List[ProductOffer]:
+        """
+        Visually audits the vector-extracted offers of a page using Claude.
+        Corrects names/prices, splits conflated items, adds missing items, 
+        and extracts high-accuracy bounding boxes for product illustrations.
+        """
+        import anthropic
+        import base64
+        import io
+        import json
+        import hashlib
+        
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            logger.warning("ANTHROPIC_API_KEY not set. Skipping Claude visual audit.")
+            return initial_offers
+            
+        logger.info(f"[Visual Audit] Auditing Page {page_idx + 1} with Claude...")
+        client = anthropic.Anthropic()
+        
+        # Serialize initial vector offers
+        simplified_offers = []
+        for o in initial_offers:
+            simplified_offers.append({
+                "name": o.name,
+                "brand": o.brand or "",
+                "weight_or_volume": o.weight_or_volume or "",
+                "price": o.price,
+                "original_price": o.original_price or None,
+                "discount_percentage": o.discount_percentage or None,
+                "promo_type": o.promo_type
+            })
+            
+        # Encode image to base64
+        buffered = io.BytesIO()
+        pil_img.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+        
+        prompt = (
+            "Role: You are an expert data auditor for Italian GDO promotional flyers.\n"
+            "Task: You are given an image of a flyer page and a list of structured product offers extracted from the PDF vector text.\n"
+            "Your goal is to visually audit, verify, correct, split, or add/delete offers to match the page perfectly.\n\n"
+            "Input Vector-Extracted Offers:\n"
+            f"{json.dumps(simplified_offers, indent=2)}\n\n"
+            "Visual Audit Steps for each item on the page:\n"
+            "1. Check if a product on the page is correctly represented in the list. If yes, preserve it but update its `bbox` to frame ONLY the product packaging photo.\n"
+            "2. If an offer in the list conflates multiple products (e.g. combines name/price of two different items), split them into separate correct items.\n"
+            "3. If an item's price is incorrect (e.g. it is the price/kg or price/Liter instead of the package price, or just read incorrectly), correct it. Look at the visual labels on the page.\n"
+            "4. If a promotional product is on the page but missing from the list, add it.\n"
+            "5. If a list item is a non-product banner, coupon, or unrelated text, delete it.\n"
+            "6. For each final item, define the precise bounding box [ymin, xmin, ymax, xmax] from 0 to 1000 framing strictly the packaging/photo of the product (exclude text/prices/logos not on the package).\n\n"
+            "Validation Rules:\n"
+            "- Product Name (name): Clean Title Case in Italian (e.g., 'Passata di pomodoro'). Exclude brand and weight.\n"
+            "- Brand (brand): Actual brand name. Leave null if not specified.\n"
+            "- Category (category): Map the product to a standard Italian department ('Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
+            "- Promotion Type (promo_type): Classify the type of promotion strictly as one of 'STANDARD', '1+1', 'DISCOUNT', or 'PERCENTAGE_DISCOUNT'.\n"
+            "- Bounding Box (bbox): Frame ONLY the product package/photo (ymin, xmin, ymax, xmax from 0 to 1000)."
+        )
+        
+        tool_schema = {
+            "name": "extract_offers",
+            "description": "Extracts the verified and audited list of commercial offers from the promotional flyer page.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "offers": {
+                        "type": "array",
+                        "description": "List of all audited offers found on the flyer page.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "reasoning": {
+                                    "type": "string",
+                                    "description": "Describe the product packaging visually and explain any correction, split, addition or verification made."
+                                },
+                                "name": {
+                                    "type": "string",
+                                    "description": "Name of the product in Title Case, in Italian. Exclude brand and weight."
+                                },
+                                "brand": {
+                                    "type": "string",
+                                    "description": "Product brand. Leave null if not specified."
+                                },
+                                "weight_or_volume": {
+                                    "type": "string",
+                                    "description": "Format, weight or volume of the product (e.g., '500g', '1.5L'). Leave null if not specified."
+                                },
+                                "price": {
+                                    "type": "number",
+                                    "description": "Decimal selling price of the offer."
+                                },
+                                "original_price": {
+                                    "type": "number",
+                                    "description": "Original pre-discount price if visible, otherwise null."
+                                },
+                                "discount_percentage": {
+                                    "type": "integer",
+                                    "description": "Discount percentage. Leave null if not indicated."
+                                },
+                                "promo_type": {
+                                    "type": "string",
+                                    "description": "Type of promotion. E.g. 'STANDARD', '1+1', 'DISCOUNT', 'PERCENTAGE_DISCOUNT'."
+                                },
+                                "category": {
+                                    "type": "string",
+                                    "description": "Standard Italian product category."
+                                },
+                                "bbox": {
+                                    "type": "array",
+                                    "description": "Product bounding box [ymin, xmin, ymax, xmax] normalized from 0 to 1000 framing strictly the packaging or photo itself.",
+                                    "items": {
+                                        "type": "integer"
+                                    }
+                                }
+                            },
+                            "required": ["reasoning", "name", "price", "bbox"]
+                        }
+                    }
+                },
+                "required": ["offers"]
+            }
+        }
+        
+        audited_offers: List[ProductOffer] = []
+        try:
+            response = None
+            max_retries = 3
+            retry_backoff = 3
+            for attempt in range(max_retries):
+                try:
+                    response = client.messages.create(
+                        model=os.environ.get("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-latest"),
+                        max_tokens=4000,
+                        temperature=0.1,
+                        system="You are an expert data auditor for Italian GDO promotional flyers.",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {
+                                        "type": "image",
+                                        "source": {
+                                            "type": "base64",
+                                            "media_type": "image/png",
+                                            "data": img_base64
+                                        }
+                                    },
+                                    {
+                                        "type": "text",
+                                        "text": prompt
+                                    }
+                                ]
+                            }
+                        ],
+                        tools=[tool_schema],
+                        tool_choice={"type": "tool", "name": "extract_offers"}
+                    )
+                    break
+                except Exception as api_err:
+                    if attempt == max_retries - 1:
+                        raise api_err
+                    logger.warning(f"Claude API failed (attempt {attempt+1}/{max_retries}): {api_err}. Retrying...")
+                    time.sleep(retry_backoff)
+                    retry_backoff *= 2
+                    
+            if response:
+                tool_use = next(block for block in response.content if block.type == "tool_use")
+                offers_data = tool_use.input.get("offers", [])
+                logger.info(f"[Visual Audit] Page {page_idx + 1}: Claude verified {len(offers_data)} offers.")
+                
+                for o in offers_data:
+                    name = o.get("name")
+                    price = o.get("price")
+                    if not name or price is None:
+                        continue
+                        
+                    brand = o.get("brand")
+                    weight = o.get("weight_or_volume")
+                    orig_price = o.get("original_price")
+                    discount = o.get("discount_percentage")
+                    bbox = o.get("bbox")
+                    category = o.get("category")
+                    
+                    promo_type = o.get("promo_type", "STANDARD")
+                    payload_str = f"{self._supermarket_name}:{store_id}:{validity_string or 'ALL'}:{name}:{price:.2f}"
+                    offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
+                    
+                    # Check standard/reusable images
+                    from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
+                    image_url = get_standard_image(name)
+                    if not image_url:
+                        image_url = find_reusable_image(self._supermarket_name, name)
+                        
+                    # Crop from page image using bounding box
+                    if not image_url and bbox and len(bbox) == 4:
+                        ymin, xmin, ymax, xmax = bbox
+                        w_px, h_px = pil_img.size
+                        
+                        px_x0 = int((xmin / 1000.0) * w_px)
+                        px_y0 = int((ymin / 1000.0) * h_px)
+                        px_x1 = int((xmax / 1000.0) * w_px)
+                        px_y1 = int((ymax / 1000.0) * h_px)
+                        
+                        box_w = px_x1 - px_x0
+                        box_h = px_y1 - px_y0
+                        pad_x = int(box_w * 0.03)
+                        pad_y = int(box_h * 0.03)
+                        
+                        crop_box = (
+                            max(0, px_x0 - pad_x),
+                            max(0, px_y0 - pad_y),
+                            min(w_px, px_x1 + pad_x),
+                            min(h_px, px_y1 + pad_y)
+                        )
+                        
+                        os.makedirs("storage/images", exist_ok=True)
+                        file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
+                        img_path = os.path.join("storage/images", file_name)
+                        
+                        try:
+                            cropped = pil_img.crop(crop_box)
+                            cropped = post_process_image_background(cropped)
+                            cropped.save(img_path, "PNG")
+                            image_url = f"/storage/images/{file_name}"
+                        except Exception as crop_err:
+                            logger.debug(f"Pillow crop error: {crop_err}")
+                            
+                    offer = ProductOffer(
+                        offer_id=offer_id,
+                        supermarket=self._supermarket_name,
+                        store_id=store_id,
+                        name=name.capitalize(),
+                        brand=brand,
+                        weight_or_volume=weight,
+                        price=price,
+                        original_price=orig_price,
+                        discount_percentage=discount,
+                        price_per_unit=None,
+                        ean_code=None,
+                        image_url=image_url,
+                        category=category,
+                        promo_type=promo_type,
+                        validity_string=validity_string
+                    )
+                    audited_offers.append(offer)
+        except Exception as err:
+            logger.error(f"[Visual Audit] Claude verification failed for page {page_idx + 1}: {err}")
+            return initial_offers
+            
+        return audited_offers

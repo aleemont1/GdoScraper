@@ -196,7 +196,10 @@ def main() -> None:
             choose_store=False,
             choose_flyer=False,
             parallel=args.parallel,
-            selected_flyer_slugs=selected_flyer_slugs
+            selected_flyer_slugs=selected_flyer_slugs,
+            use_gemini=(engine == "GEMINI"),
+            use_claude=(engine == "CLAUDE"),
+            engine=engine
         )
     elif args.supermarket == "ins":
         driver = INSSupermarketDriver(

@@ -35,7 +35,10 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
         choose_store: bool = False,
         choose_flyer: bool = False,
         parallel: bool = False,
-        selected_flyer_slugs: Optional[List[str]] = None
+        selected_flyer_slugs: Optional[List[str]] = None,
+        use_gemini: bool = False,
+        use_claude: bool = False,
+        engine: str = "AUTO"
     ) -> None:
         """
         Initializes the Conad driver with scraper configuration options.
@@ -47,9 +50,20 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
             choose_flyer: Unused parameter preserved for interface compliance.
             parallel: Enable parallel processing of PDF flyers.
             selected_flyer_slugs: Optional list of flyer slugs to target exclusively.
+            use_gemini: Use Gemini API for fallback OCR.
+            use_claude: Use Claude API for visual audit/OCR.
+            engine: Explicit parsing/OCR engine selection.
             """
-        super().__init__(radius=radius, choose_store=choose_store, choose_flyer=choose_flyer, parallel=parallel)
-        self._conad_segmenter = BasePdfLayoutSegmenter()
+        super().__init__(
+            radius=radius, 
+            choose_store=choose_store, 
+            choose_flyer=choose_flyer, 
+            parallel=parallel,
+            use_gemini=use_gemini,
+            use_claude=use_claude,
+            engine=engine
+        )
+        self._conad_segmenter = BasePdfLayoutSegmenter(gutter_min_width=6)
         self._conad_parser = ConadOfferParser()
         self.max_flyers = max_flyers
         self.radius = radius

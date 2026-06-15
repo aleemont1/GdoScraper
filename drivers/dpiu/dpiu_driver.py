@@ -255,7 +255,8 @@ class DpiuSupermarketDriver(AbstractApiSupermarketDriver):
             "id": store_code,
             "title": f"All Active Promotions for {store_code}",
             "validity": "Current Catalog",
-            "featured": True
+            "featured": True,
+            "pdf_url": f"https://dpiu.maxidi.it/punti-vendita/{store_code}"
         }]
 
     def _resolve_store_alias(self, store_id: str, bearer_token: str) -> str:

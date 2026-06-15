@@ -152,15 +152,15 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
                 
         return [{"id": store_id, "name": f"Conad pdv (anacanId: {store_id})", "address": "Direct Targeting", "city": "", "distance": None}]
 
-    def discover_flyers(self, store_code: str) -> List[Dict[str, Any]]:
+    def _get_active_flyers(self, store_code: str) -> List[Dict[str, Any]]:
         """
-        Retrieves active flyers/catalogs for the Conad store anacanId.
+        Queries Conad's corporate REST endpoints for flyers and applies filters.
         
         Args:
             store_code: Target store code (anacanId).
             
         Returns:
-            List of flyer dictionaries.
+            List of flyer dictionaries matching active and non-excluded rules.
         """
         flyers_url = f"https://www.conad.it/api/corporate/it-it.flyers.json?anacanId={store_code}"
         headers = {
@@ -177,13 +177,12 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
             current_time_ms = int(time.time() * 1000)
             EXCLUDE_KEYWORDS = ["manuale", "presentatore", "conad card", "conad pay", "regolamento", "informativa", "sanita agevolata", "sanità agevolata", "carta insieme"]
             
-            flyers_list = []
+            active_flyers = []
             for f in flyers:
                 title = f.get("title", "") or ""
                 name = f.get("name", "") or ""
                 pdf_url = f.get("pdfUrl")
                 valid_to = f.get("validTo", 0)
-                valid_from = f.get("validFrom", 0)
                 
                 if not pdf_url:
                     continue
@@ -194,25 +193,47 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
                 if any(kw in text_to_check for kw in EXCLUDE_KEYWORDS):
                     continue
                     
-                validity_str = ""
-                if valid_from and valid_to:
-                    try:
-                        dt_from = datetime.fromtimestamp(valid_from / 1000.0).strftime('%d/%m/%Y')
-                        dt_to = datetime.fromtimestamp(valid_to / 1000.0).strftime('%d/%m/%Y')
-                        validity_str = f"DAL {dt_from} AL {dt_to}"
-                    except Exception:
-                        pass
-                        
-                flyers_list.append({
-                    "id": f.get("slug"),
-                    "title": title if title else name,
-                    "validity": validity_str,
-                    "featured": False
-                })
-            return flyers_list
+                active_flyers.append(f)
+            return active_flyers
         except Exception as e:
             logger.error(f"Failed to query Conad Flyers API for store code {store_code}: {e}")
         return []
+
+    def discover_flyers(self, store_code: str) -> List[Dict[str, Any]]:
+        """
+        Retrieves active flyers/catalogs for the Conad store anacanId.
+        
+        Args:
+            store_code: Target store code (anacanId).
+            
+        Returns:
+            List of flyer dictionaries.
+        """
+        active_flyers = self._get_active_flyers(store_code)
+        
+        flyers_list = []
+        for f in active_flyers:
+            title = f.get("title", "") or ""
+            name = f.get("name", "") or ""
+            valid_from = f.get("validFrom", 0)
+            valid_to = f.get("validTo", 0)
+            
+            validity_str = ""
+            if valid_from and valid_to:
+                try:
+                    dt_from = datetime.fromtimestamp(valid_from / 1000.0).strftime('%d/%m/%Y')
+                    dt_to = datetime.fromtimestamp(valid_to / 1000.0).strftime('%d/%m/%Y')
+                    validity_str = f"DAL {dt_from} AL {dt_to}"
+                except Exception:
+                    pass
+                    
+            flyers_list.append({
+                "id": f.get("slug"),
+                "title": title if title else name,
+                "validity": validity_str,
+                "featured": False
+            })
+        return flyers_list
 
     def download_flyers(self, store_id: str) -> List[str]:
         """
@@ -235,42 +256,8 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
                 
         self._resolved_store_id = anacan_id
         
-        active_flyers = []
-        flyers_url = f"https://www.conad.it/api/corporate/it-it.flyers.json?anacanId={anacan_id}"
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "application/json, text/plain, */*",
-            "Referer": "https://www.conad.it/ricerca-negozi"
-        }
-        try:
-            res = requests.get(flyers_url, headers=headers, timeout=15)
-            res.raise_for_status()
-            data = res.json()
-            flyers = data.get("data", [])
-            
-            current_time_ms = int(time.time() * 1000)
-            EXCLUDE_KEYWORDS = ["manuale", "presentatore", "conad card", "conad pay", "regolamento", "informativa", "sanita agevolata", "sanità agevolata", "carta insieme"]
-            
-            for f in flyers:
-                title = f.get("title", "") or ""
-                name = f.get("name", "") or ""
-                pdf_url = f.get("pdfUrl")
-                valid_to = f.get("validTo", 0)
-                
-                if not pdf_url:
-                    continue
-                if not valid_to or current_time_ms > valid_to:
-                    continue
-                    
-                text_to_check = (title + " " + name).lower()
-                if any(kw in text_to_check for kw in EXCLUDE_KEYWORDS):
-                    continue
-                    
-                active_flyers.append(f)
-        except Exception as e:
-            logger.error(f"Failed to query Conad Flyers API: {e}")
-            return []
-            
+        active_flyers = self._get_active_flyers(anacan_id)
+        
         selected_flyers = active_flyers
         if self.selected_flyer_slugs:
             selected_flyers = [f for f in active_flyers if f.get("slug") in self.selected_flyer_slugs]
@@ -310,3 +297,6 @@ class ConadSupermarketDriver(AbstractPdfFlyerDriver):
                     logger.error(f"Failed to download flyer '{title}' from URL {pdf_url}: {e}")
                     
         return downloaded_paths
+
+
+

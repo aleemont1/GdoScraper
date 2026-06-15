@@ -217,14 +217,22 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
         Returns:
             List of flyer dictionaries.
         """
-        leaflets = self._fetch_leaflets_for_store(store_code)
+        self._fetch_csrf_token()
+        resolved_code = store_code
+        if store_code.isdigit():
+            code, _ = self._resolve_store_details_by_db_id(int(store_code))
+            if code:
+                resolved_code = code
+
+        leaflets = self._fetch_leaflets_for_store(resolved_code)
         flyers = []
         for lf in leaflets:
             flyers.append({
                 "id": str(lf.get("id")),
                 "title": lf.get("titolo", "Coop Flyer"),
                 "validity": lf.get("pretty_name_validita", ""),
-                "featured": bool(lf.get("featured"))
+                "featured": bool(lf.get("featured")),
+                "pdf_url": lf.get("url")
             })
         return flyers
 

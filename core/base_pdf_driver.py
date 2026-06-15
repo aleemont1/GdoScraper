@@ -353,21 +353,50 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 else:
                     logger.info("Scanned/Flat-image brochure detected. Engaging OCR visual extraction fallback...")
                     
-                    # Unified system/visual prompts in English
                     prompt = (
-                        "Role: You are an expert visual data and OCR extractor for Italian GDO (Grande Distribuzione Organizzata) promotional flyers.\n"
-                        "Task: Carefully analyze the image of this flyer page and accurately extract all commercial offers.\n\n"
-                        "Steps for each offer (step-by-step reasoning):\n"
-                        "1. Visually locate a specific product promotional card/section.\n"
-                        "2. Read the price (e.g., '1,49' -> convert to float 1.49) and any discount (e.g., '-30%'). If the price has euros and cents separated or minimized, combine them correctly.\n"
-                        "3. Identify the descriptive text of the product in Italian, isolating the name (name), the brand (brand, e.g., 'Mulino Bianco') and the format/weight (weight_or_volume, e.g., '400 g', '1,5 L', 'pack of 4 pieces').\n"
-                        "4. Identify the boundaries of the product PHOTO or its packaging. Focus strictly on the product object/packaging itself. Do NOT include any flyer text descriptions, price tags, brand logos (unless on the package), or adjacent product cards.\n"
-                        "5. Calculate the normalized coordinates [ymin, xmin, ymax, xmax] from 0 to 1000 framing ONLY the visual product package/photo with a tiny safety margin of 2-3% on all sides.\n\n"
-                        "Validation Rules:\n"
-                        "- Product Name (name): Write it in clean Title Case in Italian (e.g., 'Biscotti frollini integrali'). Do not include weights or brands here.\n"
-                        "- Brand (brand): Extract only the actual brand (if specified). If absent, leave null.\n"
-                        "- Category (category): Map the product to a standard Italian department (e.g., 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
-                        "- Bounding Box (bbox): Must frame ONLY the photo of the promotional article/packaging, leaving a tiny safety margin of 2-3% on all sides in the normalized system 0-1000 (ymin top, xmin left, ymax bottom, xmax right). Absolutely exclude text block descriptions, price tags/bubbles, and unrelated flyer graphics."
+                        "<role>\n"
+                        "You are a state-of-the-art visual document analysis agent and expert OCR data extractor specializing in Italian GDO (Grande Distribuzione Organizzata) promotional flyers/circulars.\n"
+                        "</role>\n\n"
+                        "<task>\n"
+                        "Carefully inspect the provided flyer page image. Your objective is to extract every commercial product promotion (offer) displayed on the page.\n"
+                        "For each detected offer, perform step-by-step chain-of-thought reasoning to identify the product details and crop coordinates, and return the structured data.\n"
+                        "</task>\n\n"
+                        "<instructions>\n"
+                        "For each promotional item on the flyer page, follow these logical steps:\n"
+                        "1. **Identify Promotion Region**: Locate the distinct graphical cell, box, or region containing the product and its price.\n"
+                        "2. **Extract Price Details**:\n"
+                        "   - Read the price numbers carefully. Note that euros and cents are often formatted with different font sizes (e.g., a large '1' and a small superscript '49' means 1.49). Combine them correctly.\n"
+                        "   - Ignore \"al kg\" or \"al litro\" unit prices if a total package price is also shown; prioritize the package selling price.\n"
+                        "   - If a discount percentage (e.g., '-30%', 'Sconto 40%') is displayed, extract the percentage number as an integer.\n"
+                        "   - Look for any original pre-discount price (often crossed out) and extract it.\n"
+                        "3. **Extract Textual Details (in Italian)**:\n"
+                        "   - Identify the **Product Name** (e.g., 'Passata di pomodoro', 'Frollini con gocce di cioccolato'). Write it in Title Case. Exclude weight, volume, and brand names.\n"
+                        "   - Identify the **Brand** (e.g., 'Barilla', 'Mulino Bianco', 'Granarolo'). If no brand is specified, leave it null.\n"
+                        "   - Identify the **Format/Weight/Volume** (e.g., '500 g', '1.5 Litri', 'confezione da 4 pezzi'). Normalize the unit text if possible.\n"
+                        "4. **Determine Product Category**: Map the product to one of these standard Italian departments:\n"
+                        "   - 'Alimentari' (Dry groceries, pasta, canned food, snacks)\n"
+                        "   - 'Surgelati' (Frozen food)\n"
+                        "   - 'Bevande' (Water, sodas, juices, alcohol/wine/beer)\n"
+                        "   - 'Ortofrutta' (Fresh fruits and vegetables)\n"
+                        "   - 'Macelleria' (Fresh meat and poultry)\n"
+                        "   - 'Pescheria' (Fresh fish and seafood)\n"
+                        "   - 'Gastronomia' (Deli, cheese, cured meats, ready meals)\n"
+                        "   - 'Latticini e Freschi' (Yogurt, milk, butter, fresh pasta)\n"
+                        "   - 'Igiene Casa' (Detergents, cleaning products, paper towels)\n"
+                        "   - 'Cura Persona' (Shampoo, soap, cosmetics, baby care)\n"
+                        "   - 'Pet Food' (Dog/cat food, pet care)\n"
+                        "   - 'No Food' (Electronics, clothing, housewares)\n"
+                        "5. **Frame Bounding Box (`bbox`)**:\n"
+                        "   - Locate the boundary of the **PRODUCT PHOTO or packaging image ONLY**.\n"
+                        "   - Do **NOT** include the surrounding text descriptions, price tags/bubbles, brand logos (unless on the package), or adjacent items.\n"
+                        "   - Calculate normalized coordinates `[ymin, xmin, ymax, xmax]` from `0` to `1000` (where `0` is the top/left and `1000` is the bottom/right of the page).\n"
+                        "   - Add a tiny safety margin of 2-3% around the product packaging to prevent tight cropping.\n"
+                        "</instructions>\n\n"
+                        "<validation_rules>\n"
+                        "- **No duplicates**: Do not extract the same product card multiple times on the same page.\n"
+                        "- **Strict Bounding Boxes**: The bounding box coordinates must be integers in range `[0, 1000]`. Ensure `ymin < ymax` and `xmin < xmax`.\n"
+                        "- **Accurate parsing**: Do not hallucinate brand names or package details if they are not explicitly printed on the flyer page.\n"
+                        "</validation_rules>"
                     )
                     
                     # Engine B.1: Gemini Multimodal Visual OCR
@@ -443,43 +472,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
                                     offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                                     
-                                    from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
-                                    image_url = get_standard_image(name)
-                                    if not image_url:
-                                        image_url = find_reusable_image(self._supermarket_name, name)
-                                        
-                                    if not image_url and bbox and len(bbox) == 4:
-                                        ymin, xmin, ymax, xmax = bbox
-                                        w_px, h_px = pil_img.size
-                                        
-                                        px_x0 = int((xmin / 1000.0) * w_px)
-                                        px_y0 = int((ymin / 1000.0) * h_px)
-                                        px_x1 = int((xmax / 1000.0) * w_px)
-                                        px_y1 = int((ymax / 1000.0) * h_px)
-                                        
-                                        box_w = px_x1 - px_x0
-                                        box_h = px_y1 - px_y0
-                                        pad_x = int(box_w * 0.03)  # Refined 3% safety margin
-                                        pad_y = int(box_h * 0.03)
-                                        
-                                        crop_box = (
-                                            max(0, px_x0 - pad_x),
-                                            max(0, px_y0 - pad_y),
-                                            min(w_px, px_x1 + pad_x),
-                                            min(h_px, px_y1 + pad_y)
-                                        )
-                                        
-                                        os.makedirs("storage/images", exist_ok=True)
-                                        file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
-                                        file_path = os.path.join("storage/images", file_name)
-                                        
-                                        try:
-                                            cropped = pil_img.crop(crop_box)
-                                            cropped = post_process_image_background(cropped)
-                                            cropped.save(file_path, "PNG")
-                                            image_url = f"/storage/images/{file_name}"
-                                        except Exception as crop_err:
-                                            logger.debug(f"Pillow crop error: {crop_err}")
+                                    image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
                                             
                                     offer = ProductOffer(
                                         offer_id=offer_id,
@@ -779,6 +772,69 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         except Exception as e:
             logger.error(f"Failed to write to missed products log: {e}")
 
+    def _extract_and_save_product_image(
+        self,
+        name: str,
+        bbox: Optional[List[int]],
+        pil_img: Any,
+        store_id: str,
+        offer_id: str
+    ) -> Optional[str]:
+        """
+        Extracts a product image using a standard lookup or crops it from the page image.
+        
+        Args:
+            name: Product name.
+            bbox: Bounding box coordinates [ymin, xmin, ymax, xmax] normalized from 0 to 1000.
+            pil_img: PIL Image object of the flyer page.
+            store_id: Store identifier.
+            offer_id: Unique offer hash.
+            
+        Returns:
+            The image URL/path or None.
+        """
+        from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
+        image_url = get_standard_image(name)
+        if not image_url:
+            image_url = find_reusable_image(self._supermarket_name, name)
+            
+        if not image_url and bbox and len(bbox) == 4 and pil_img:
+            ymin, xmin, ymax, xmax = bbox
+            w_px, h_px = pil_img.size
+            
+            px_x0 = int((xmin / 1000.0) * w_px)
+            px_y0 = int((ymin / 1000.0) * h_px)
+            px_x1 = int((xmax / 1000.0) * w_px)
+            px_y1 = int((ymax / 1000.0) * h_px)
+            
+            box_w = px_x1 - px_x0
+            box_w = max(1, box_w)
+            box_h = px_y1 - px_y0
+            box_h = max(1, box_h)
+            pad_x = int(box_w * 0.03)  # Refined 3% safety margin
+            pad_y = int(box_h * 0.03)
+            
+            crop_box = (
+                max(0, px_x0 - pad_x),
+                max(0, px_y0 - pad_y),
+                min(w_px, px_x1 + pad_x),
+                min(h_px, px_y1 + pad_y)
+            )
+            
+            os.makedirs("storage/images", exist_ok=True)
+            file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
+            file_path = os.path.join("storage/images", file_name)
+            
+            try:
+                cropped = pil_img.crop(crop_box)
+                cropped = post_process_image_background(cropped)
+                cropped.save(file_path, "PNG")
+                image_url = f"/storage/images/{file_name}"
+            except Exception as crop_err:
+                logger.debug(f"Pillow crop error: {crop_err}")
+                
+        return image_url
+
     def _parse_scanned_flyer_via_claude(self, file_path: str, store_id: str) -> List[ProductOffer]:
         """Executes scanned flyer OCR visual parsing using Anthropic's Claude API as a fallback."""
         import anthropic
@@ -795,19 +851,49 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         client = anthropic.Anthropic()
         
         prompt = (
-            "Role: You are an expert visual data and OCR extractor for Italian GDO (Grande Distribuzione Organizzata) promotional flyers.\n"
-            "Task: Carefully analyze the image of this flyer page and accurately extract all commercial offers.\n\n"
-            "Steps for each offer (step-by-step reasoning):\n"
-            "1. Visually locate a specific product promotional card/section.\n"
-            "2. Read the price (e.g., '1,49' -> convert to float 1.49) and any discount (e.g., '-30%'). If the price has euros and cents separated or minimized, combine them correctly.\n"
-            "3. Identify the descriptive text of the product in Italian, isolating the name (name), the brand (brand, e.g., 'Mulino Bianco') and the format/weight (weight_or_volume, e.g., '400 g', '1,5 L', 'pack of 4 pieces').\n"
-            "4. Identify the boundaries of the product PHOTO or its packaging. Focus strictly on the product object/packaging itself. Do NOT include any flyer text descriptions, price tags, brand logos (unless on the package), or adjacent product cards.\n"
-            "5. Calculate the normalized coordinates [ymin, xmin, ymax, xmax] from 0 to 1000 framing ONLY the visual product package/photo with a tiny safety margin of 2-3% on all sides.\n\n"
-            "Validation Rules:\n"
-            "- Product Name (name): Write it in clean Title Case in Italian (e.g., 'Biscotti frollini integrali'). Do not include weights or brands here.\n"
-            "- Brand (brand): Extract only the actual brand (if specified). If absent, leave null.\n"
-            "- Category (category): Map the product to a standard Italian department (e.g., 'Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
-            "- Bounding Box (bbox): Must frame ONLY the photo of the promotional article/packaging, leaving a tiny safety margin of 2-3% on all sides in the normalized system 0-1000 (ymin top, xmin left, ymax bottom, xmax right). Absolutely exclude text block descriptions, price tags/bubbles, and unrelated flyer graphics."
+            "<role>\n"
+            "You are a state-of-the-art visual document analysis agent and expert OCR data extractor specializing in Italian GDO (Grande Distribuzione Organizzata) promotional flyers/circulars.\n"
+            "</role>\n\n"
+            "<task>\n"
+            "Carefully inspect the provided flyer page image. Your objective is to extract every commercial product promotion (offer) displayed on the page.\n"
+            "For each detected offer, perform step-by-step chain-of-thought reasoning to identify the product details and crop coordinates, and return the structured data.\n"
+            "</task>\n\n"
+            "<instructions>\n"
+            "For each promotional item on the flyer page, follow these logical steps:\n"
+            "1. **Identify Promotion Region**: Locate the distinct graphical cell, box, or region containing the product and its price.\n"
+            "2. **Extract Price Details**:\n"
+            "   - Read the price numbers carefully. Note that euros and cents are often formatted with different font sizes (e.g., a large '1' and a small superscript '49' means 1.49). Combine them correctly.\n"
+            "   - Ignore \"al kg\" or \"al litro\" unit prices if a total package price is also shown; prioritize the package selling price.\n"
+            "   - If a discount percentage (e.g., '-30%', 'Sconto 40%') is displayed, extract the percentage number as an integer.\n"
+            "   - Look for any original pre-discount price (often crossed out) and extract it.\n"
+            "3. **Extract Textual Details (in Italian)**:\n"
+            "   - Identify the **Product Name** (e.g., 'Passata di pomodoro', 'Frollini con gocce di cioccolato'). Write it in Title Case. Exclude weight, volume, and brand names.\n"
+            "   - Identify the **Brand** (e.g., 'Barilla', 'Mulino Bianco', 'Granarolo'). If no brand is specified, leave it null.\n"
+            "   - Identify the **Format/Weight/Volume** (e.g., '500 g', '1.5 Litri', 'confezione da 4 pezzi'). Normalize the unit text if possible.\n"
+            "4. **Determine Product Category**: Map the product to one of these standard Italian departments:\n"
+            "   - 'Alimentari' (Dry groceries, pasta, canned food, snacks)\n"
+            "   - 'Surgelati' (Frozen food)\n"
+            "   - 'Bevande' (Water, sodas, juices, alcohol/wine/beer)\n"
+            "   - 'Ortofrutta' (Fresh fruits and vegetables)\n"
+            "   - 'Macelleria' (Fresh meat and poultry)\n"
+            "   - 'Pescheria' (Fresh fish and seafood)\n"
+            "   - 'Gastronomia' (Deli, cheese, cured meats, ready meals)\n"
+            "   - 'Latticini e Freschi' (Yogurt, milk, butter, fresh pasta)\n"
+            "   - 'Igiene Casa' (Detergents, cleaning products, paper towels)\n"
+            "   - 'Cura Persona' (Shampoo, soap, cosmetics, baby care)\n"
+            "   - 'Pet Food' (Dog/cat food, pet care)\n"
+            "   - 'No Food' (Electronics, clothing, housewares)\n"
+            "5. **Frame Bounding Box (`bbox`)**:\n"
+            "   - Locate the boundary of the **PRODUCT PHOTO or packaging image ONLY**.\n"
+            "   - Do **NOT** include the surrounding text descriptions, price tags/bubbles, brand logos (unless on the package), or adjacent items.\n"
+            "   - Calculate normalized coordinates `[ymin, xmin, ymax, xmax]` from `0` to `1000` (where `0` is the top/left and `1000` is the bottom/right of the page).\n"
+            "   - Add a tiny safety margin of 2-3% around the product packaging to prevent tight cropping.\n"
+            "</instructions>\n\n"
+            "<validation_rules>\n"
+            "- **No duplicates**: Do not extract the same product card multiple times on the same page.\n"
+            "- **Strict Bounding Boxes**: The bounding box coordinates must be integers in range `[0, 1000]`. Ensure `ymin < ymax` and `xmin < xmax`.\n"
+            "- **Accurate parsing**: Do not hallucinate brand names or package details if they are not explicitly printed on the flyer page.\n"
+            "</validation_rules>"
         )
         
         tool_schema = {
@@ -956,44 +1042,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
                             offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                             
-                            image_url = None
-                            from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
-                            image_url = get_standard_image(name)
-                            if not image_url:
-                                image_url = find_reusable_image(self._supermarket_name, name)
-                                
-                            if not image_url and bbox and len(bbox) == 4:
-                                ymin, xmin, ymax, xmax = bbox
-                                w_px, h_px = pil_img.size
-                                
-                                px_x0 = int((xmin / 1000.0) * w_px)
-                                px_y0 = int((ymin / 1000.0) * h_px)
-                                px_x1 = int((xmax / 1000.0) * w_px)
-                                px_y1 = int((ymax / 1000.0) * h_px)
-                                
-                                box_w = px_x1 - px_x0
-                                box_h = px_y1 - px_y0
-                                pad_x = int(box_w * 0.03)  # Refined 3% safety margin
-                                pad_y = int(box_h * 0.03)
-                                
-                                crop_box = (
-                                    max(0, px_x0 - pad_x),
-                                    max(0, px_y0 - pad_y),
-                                    min(w_px, px_x1 + pad_x),
-                                    min(h_px, px_y1 + pad_y)
-                                )
-                                
-                                os.makedirs("storage/images", exist_ok=True)
-                                file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
-                                img_path = os.path.join("storage/images", file_name)
-                                
-                                try:
-                                    cropped = pil_img.crop(crop_box)
-                                    cropped = post_process_image_background(cropped)
-                                    cropped.save(img_path, "PNG")
-                                    image_url = f"/storage/images/{file_name}"
-                                except Exception as crop_err:
-                                    logger.debug(f"Pillow crop error: {crop_err}")
+                            image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
                                     
                             offer = ProductOffer(
                                 offer_id=offer_id,
@@ -1066,24 +1115,50 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
         
         prompt = (
-            "Role: You are an expert data auditor for Italian GDO promotional flyers.\n"
-            "Task: You are given an image of a flyer page and a list of structured product offers extracted from the PDF vector text.\n"
-            "Your goal is to visually audit, verify, correct, split, or add/delete offers to match the page perfectly.\n\n"
-            "Input Vector-Extracted Offers:\n"
-            f"{json.dumps(simplified_offers, indent=2)}\n\n"
-            "Visual Audit Steps for each item on the page:\n"
-            "1. Check if a product on the page is correctly represented in the list. If yes, preserve it but update its `bbox` to frame ONLY the product packaging photo.\n"
-            "2. If an offer in the list conflates multiple products (e.g. combines name/price of two different items), split them into separate correct items.\n"
-            "3. If an item's price is incorrect (e.g. it is the price/kg or price/Liter instead of the package price, or just read incorrectly), correct it. Look at the visual labels on the page.\n"
-            "4. If a promotional product is on the page but missing from the list, add it.\n"
-            "5. If a list item is a non-product banner, coupon, or unrelated text, delete it.\n"
-            "6. For each final item, define the precise bounding box [ymin, xmin, ymax, xmax] from 0 to 1000 framing strictly the packaging/photo of the product (exclude text/prices/logos not on the package).\n\n"
-            "Validation Rules:\n"
-            "- Product Name (name): Clean Title Case in Italian (e.g., 'Passata di pomodoro'). Exclude brand and weight.\n"
-            "- Brand (brand): Actual brand name. Leave null if not specified.\n"
-            "- Category (category): Map the product to a standard Italian department ('Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Igiene Casa', 'Cura Persona').\n"
-            "- Promotion Type (promo_type): Classify the type of promotion strictly as one of 'STANDARD', '1+1', 'DISCOUNT', or 'PERCENTAGE_DISCOUNT'.\n"
-            "- Bounding Box (bbox): Frame ONLY the product package/photo (ymin, xmin, ymax, xmax from 0 to 1000)."
+            "<role>\n"
+            "You are an expert data QA auditor and visual inspector for Italian GDO promotional flyers.\n"
+            "</role>\n\n"
+            "<task>\n"
+            "You are provided with:\n"
+            "1. An image of a flyer page.\n"
+            "2. A list of structured product offers extracted from the page's PDF vector text layer.\n\n"
+            "Your goal is to perform a visual audit of the page, reconcile the vector-extracted list against what is actually printed on the page, correct any errors, add missing items, delete non-product items, split conflated text elements, and calculate precise bounding boxes for product photos.\n"
+            "</task>\n\n"
+            "<input_data>\n"
+            "<vector_extracted_offers>\n"
+            f"{json.dumps(simplified_offers, indent=2)}\n"
+            "</vector_extracted_offers>\n"
+            "</input_data>\n\n"
+            "<audit_instructions>\n"
+            "For each item displayed visually on the page, audit the extracted list using these rules:\n"
+            "1. **Verification & Bounding Box Update**:\n"
+            "   - If a product on the page is correctly listed, verify its details (name, brand, weight, price).\n"
+            "   - Add/update its `bbox` to frame **ONLY the product package or photo itself** (excluding text, prices, or bubbles).\n"
+            "2. **Correction**:\n"
+            "   - Correct misaligned prices (e.g. if the vector parser grabbed a unit price, e.g., '1,20 €/kg', instead of the package sale price, e.g., '2,40 €').\n"
+            "   - Fix misidentified brands or misspelled names.\n"
+            "3. **Splitting Conflated Offers**:\n"
+            "   - If the vector-extracted text merged two distinct offers into a single item (e.g. 'Pasta Barilla / Olio Monini' with a single price), split them into two separate offers with their correct respective prices and package photos.\n"
+            "4. **Adding Missing Offers**:\n"
+            "   - If a product is visually in promotion on the page but absent from the vector list, add it as a new offer.\n"
+            "5. **Deletion**:\n"
+            "   - If an item in the vector list is a coupon, legal disclaimer, store logo, page header, or banner rather than a concrete product offer, delete/exclude it.\n"
+            "6. **Promotion Type Classification**:\n"
+            "   - Classify `promo_type` strictly using these rules:\n"
+            "     - `1+1`: For \"1+1\", \"Prendi 2 paghi 1\", or similar offers.\n"
+            "     - `PERCENTAGE_DISCOUNT`: If a discount percentage (e.g., \"30% di sconto\", \"-40%\") is prominently featured.\n"
+            "     - `DISCOUNT`: For \"Prezzo speciale\", \"Sottocosto\", \"Offerta speciale\", or flat discount/value-cut promotions.\n"
+            "     - `STANDARD`: For standard promotional pricing without explicit discount markings.\n"
+            "7. **Bounding Box System**:\n"
+            "   - Use normalized coordinates `[ymin, xmin, ymax, xmax]` in range `[0, 1000]`.\n"
+            "   - Frame ONLY the visual product package/photo with a tiny 2-3% safety margin.\n"
+            "</audit_instructions>\n\n"
+            "<validation_rules>\n"
+            "- **Product Name (name)**: Clean Title Case in Italian (e.g., 'Caffè macinato'). No brand or weight in the name field.\n"
+            "- **Brand (brand)**: Extract only the actual brand name. Null if not specified.\n"
+            "- **Category (category)**: Map to a standard department ('Alimentari', 'Surgelati', 'Bevande', 'Ortofrutta', 'Macelleria', 'Pescheria', 'Gastronomia', 'Latticini e Freschi', 'Igiene Casa', 'Cura Persona', 'Pet Food', 'No Food').\n"
+            "- **No Hallucinations**: Every output offer must correspond to a real, visible item on the page.\n"
+            "</validation_rules>"
         )
         
         tool_schema = {
@@ -1214,45 +1289,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                     payload_str = f"{self._supermarket_name}:{store_id}:{validity_string or 'ALL'}:{name}:{price:.2f}"
                     offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                     
-                    # Check standard/reusable images
-                    from utils.image_manager import get_standard_image, find_reusable_image, post_process_image_background
-                    image_url = get_standard_image(name)
-                    if not image_url:
-                        image_url = find_reusable_image(self._supermarket_name, name)
-                        
-                    # Crop from page image using bounding box
-                    if not image_url and bbox and len(bbox) == 4:
-                        ymin, xmin, ymax, xmax = bbox
-                        w_px, h_px = pil_img.size
-                        
-                        px_x0 = int((xmin / 1000.0) * w_px)
-                        px_y0 = int((ymin / 1000.0) * h_px)
-                        px_x1 = int((xmax / 1000.0) * w_px)
-                        px_y1 = int((ymax / 1000.0) * h_px)
-                        
-                        box_w = px_x1 - px_x0
-                        box_h = px_y1 - px_y0
-                        pad_x = int(box_w * 0.03)
-                        pad_y = int(box_h * 0.03)
-                        
-                        crop_box = (
-                            max(0, px_x0 - pad_x),
-                            max(0, px_y0 - pad_y),
-                            min(w_px, px_x1 + pad_x),
-                            min(h_px, px_y1 + pad_y)
-                        )
-                        
-                        os.makedirs("storage/images", exist_ok=True)
-                        file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
-                        img_path = os.path.join("storage/images", file_name)
-                        
-                        try:
-                            cropped = pil_img.crop(crop_box)
-                            cropped = post_process_image_background(cropped)
-                            cropped.save(img_path, "PNG")
-                            image_url = f"/storage/images/{file_name}"
-                        except Exception as crop_err:
-                            logger.debug(f"Pillow crop error: {crop_err}")
+                    image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
                             
                     offer = ProductOffer(
                         offer_id=offer_id,

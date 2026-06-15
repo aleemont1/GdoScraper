@@ -19,7 +19,16 @@ if os.path.exists(".env"):
 
 def get_python_executable():
     """Returns the path to the current virtual environment python executable or fallback to sys.executable."""
+    # Try Unix path
     venv_py = os.path.join(".venv", "bin", "python")
+    
+    # Try Windows path
+    import sys
+    if sys.platform.startswith("win"):
+        win_path = os.path.join(".venv", "Scripts", "python.exe")
+        if os.path.exists(win_path):
+            venv_py = win_path
+            
     if os.path.exists(venv_py):
         return venv_py
     return sys.executable

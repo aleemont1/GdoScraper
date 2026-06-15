@@ -30,14 +30,13 @@ class ManualSupermarketDriver(AbstractPdfFlyerDriver):
         self._resolved_store_id = store_id.strip()
         
         # Instantiate both Conad and IN's strategy engines for dynamic dispatching
-        from drivers.conad.layout_segmenter import ConadLayoutSegmenter
+        from core.base_pdf_segmenter import BasePdfLayoutSegmenter
         from drivers.conad.offer_parser import ConadOfferParser
-        from drivers.ins.ins_layout_segmenter import InsLayoutSegmenter
         from drivers.ins.ins_offer_parser import InsOfferParser
         
-        self._conad_segmenter = ConadLayoutSegmenter()
+        self._conad_segmenter = BasePdfLayoutSegmenter(gutter_min_width=6)
         self._conad_parser = ConadOfferParser()
-        self._ins_segmenter = InsLayoutSegmenter()
+        self._ins_segmenter = BasePdfLayoutSegmenter()
         self._ins_parser = InsOfferParser()
         
         self._current_is_vector = False

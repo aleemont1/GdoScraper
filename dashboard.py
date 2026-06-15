@@ -9,8 +9,16 @@ def _ensure_virtualenv():
     the project's virtual environment (.venv) where all GDO scraping libraries are installed.
     """
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Try Unix-like path first
     venv_python = os.path.join(script_dir, ".venv", "bin", "python")
     
+    # Try Windows path
+    if sys.platform.startswith("win"):
+        win_path = os.path.join(script_dir, ".venv", "Scripts", "python.exe")
+        if os.path.exists(win_path):
+            venv_python = win_path
+            
     # If the local venv python exists and we are not already running on it, re-execute
     if os.path.exists(venv_python) and os.path.abspath(sys.executable) != os.path.abspath(venv_python):
         print(f"\n[Dashboard] 🔄 Running on global Python ({sys.executable}).")
@@ -323,6 +331,52 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(b"Static dashboard asset not found")
             return
 
+        # 8. Route: Redirect /docs or /docs/ to /docs/api/index.html to preserve relative paths
+        elif self.path.split('?')[0] in ("/docs", "/docs/"):
+            self.send_response(302)
+            self.send_header("Location", "/docs/api/index.html")
+            self.end_headers()
+            return
+
+        # 9. Route: Serve generated documentation static assets securely (preventing traversal attacks)
+        elif self.path.startswith("/docs/"):
+            import urllib.parse
+            decoded_path = urllib.parse.unquote(self.path)
+            # Remove query parameters from path_part for finding the file
+            path_part = decoded_path.split('?')[0].lstrip("/")
+            
+            docs_dir_abs = os.path.abspath("docs")
+            requested_path_abs = os.path.abspath(path_part)
+            
+            # If requesting a directory, serve its index.html
+            if os.path.isdir(requested_path_abs):
+                requested_path_abs = os.path.join(requested_path_abs, "index.html")
+            
+            if (requested_path_abs == docs_dir_abs or requested_path_abs.startswith(docs_dir_abs + os.sep)) and os.path.exists(requested_path_abs) and os.path.isfile(requested_path_abs):
+                self.send_response(200)
+                if requested_path_abs.endswith(".html"):
+                    self.send_header("Content-type", "text/html; charset=utf-8")
+                elif requested_path_abs.endswith(".css"):
+                    self.send_header("Content-type", "text/css; charset=utf-8")
+                elif requested_path_abs.endswith(".js"):
+                    self.send_header("Content-type", "application/javascript; charset=utf-8")
+                elif requested_path_abs.endswith(".png"):
+                    self.send_header("Content-type", "image/png")
+                elif requested_path_abs.endswith((".jpg", ".jpeg")):
+                    self.send_header("Content-type", "image/jpeg")
+                else:
+                    self.send_header("Content-type", "application/octet-stream")
+                self.end_headers()
+                
+                with open(requested_path_abs, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self.send_response(404)
+                self.send_header("Content-type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"Document not found")
+            return
+
         else:
             # Fallback 404 for unmapped static routes
             self.send_response(404)
@@ -395,18 +449,6 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 with open(file_path, "wb") as f:
                     f.write(pdf_content)
                     
-                # Load environment variables
-                if os.path.exists(".env"):
-                    try:
-                        with open(".env") as f:
-                            for line in f:
-                                stripped = line.strip()
-                                if stripped and not stripped.startswith("#") and "=" in stripped:
-                                    k, v = stripped.split("=", 1)
-                                    os.environ[k.strip()] = v.strip().strip("'\"")
-                    except Exception:
-                        pass
-
                 from drivers.manual.manual_driver import ManualSupermarketDriver
                 from storage.database import save_offers
                 

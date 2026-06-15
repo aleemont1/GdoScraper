@@ -131,7 +131,10 @@ const translations = {
         msg_extraction_failed_title: "Estrazione Fallita",
         msg_initiating_live_scraping: "Avvio dello scaricamento offerte per {chain} (Codice Negozio: {id})...",
         msg_extraction_completed_title: "Estrazione Completata",
-        msg_empty_stores_list: "Inserisci una città o coordinate per trovare i supermercati."
+        msg_empty_stores_list: "Inserisci una città o coordinate per trovare i supermercati.",
+        footer_legal_info: "© 2026 GDO Scraper. Tutti i diritti riservati. Uso autorizzato esclusivamente per consultazione e analisi.",
+        footer_docs_link: "Documentazione API",
+        footer_author: "Sviluppato da"
     },
     en: {
         title: "Supermarket Promotion Auditor",
@@ -244,7 +247,10 @@ const translations = {
         msg_extraction_failed_title: "Extraction Failed",
         msg_initiating_live_scraping: "Starting promotion download for {chain} (Store Code: {id})...",
         msg_extraction_completed_title: "Extraction Completed",
-        msg_empty_stores_list: "Enter a city or coordinates to find supermarkets."
+        msg_empty_stores_list: "Enter a city or coordinates to find supermarkets.",
+        footer_legal_info: "© 2026 GDO Scraper. All rights reserved. Authorized for consultation and analysis only.",
+        footer_docs_link: "API Documentation",
+        footer_author: "Developed by"
     }
 };
 
@@ -915,6 +921,7 @@ async function selectStoreItem(storeId, itemIndex) {
             item.className = 'flyer-select-item';
             
             const label = document.createElement('label');
+            label.style.flex = '1';
             
             const cb = document.createElement('input');
             cb.type = 'checkbox';
@@ -928,6 +935,20 @@ async function selectStoreItem(storeId, itemIndex) {
             label.appendChild(cb);
             label.appendChild(titleSpan);
             item.appendChild(label);
+            
+            if (flyer.pdf_url) {
+                const previewBtn = document.createElement('button');
+                previewBtn.className = 'btn-preview';
+                previewBtn.innerHTML = '👁';
+                previewBtn.title = t('preview_pdf_title') || 'Preview PDF';
+                previewBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    window.open(flyer.pdf_url, '_blank');
+                };
+                item.appendChild(previewBtn);
+            }
+            
             flyersSelectionList.appendChild(item);
         });
     } catch (err) {

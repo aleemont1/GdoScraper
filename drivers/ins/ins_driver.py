@@ -75,6 +75,7 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         try:
             res = requests.get(url, headers=headers, timeout=15)
             res.raise_for_status()
+            res.encoding = 'utf-8'
         except Exception as e:
             logger.error(f"Failed to crawl IN's volantino entrypoint URL: {e}")
             return []
@@ -138,21 +139,9 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
                 
         return stores_list
 
-    def discover_flyers(self, store_code: str) -> List[Dict[str, Any]]:
+    def _resolve_flyer_pdf_url(self, store_id: str) -> Optional[str]:
         """
-        Returns the single active flyer catalog for the INS store code.
-        """
-        return [{
-            "id": store_code,
-            "title": f"IN's Flyer Circular ({store_code})",
-            "validity": "Active Circular",
-            "featured": True
-        }]
-
-    def download_flyers(self, store_id: str) -> List[str]:
-        """
-        Crawls the IN's website store/region spans to resolve the target PDF URL,
-        downloads it, and stores it locally.
+        Crawls the IN's website to resolve the target flyer PDF URL for a store/region.
         """
         # Resolve GPS coordinates to city name
         city_query = self._resolve_coordinates_to_city(store_id)
@@ -167,9 +156,10 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         try:
             res = requests.get(url, headers=headers, timeout=15)
             res.raise_for_status()
+            res.encoding = 'utf-8'
         except Exception as e:
             logger.error(f"Failed to crawl IN's volantino entrypoint URL: {e}")
-            return []
+            return None
 
         # 2. Parse WordPress JavaScript configuration block variables
         soup = BeautifulSoup(res.text, "html.parser")
@@ -177,7 +167,7 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         
         if not all_stores_div:
             logger.error("Could not locate hidden 'all-stores' container in the IN's page.")
-            return []
+            return None
 
         default_url = all_stores_div.get("data-default-url")
         current_flyer = str(all_stores_div.get("data-current-flyer", "2"))
@@ -189,7 +179,7 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
 
         if not default_url or not edition_path:
             logger.error("Missing critical WordPress CDN parameters in WordPress store selector.")
-            return []
+            return None
 
         logger.info(f"CDN Base URL: {default_url} | Edition Path: {edition_path}")
 
@@ -241,15 +231,47 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
 
         if not store_code:
             logger.error("Failed to extract a valid store edition code from span.")
-            return []
+            return None
 
         # 4. Construct PDF Download URL
         pdf_url = f"{default_url}/{edition_path}/pdf/volantino-{store_code}.pdf"
         logger.info(f"Target PDF URL constructed: {pdf_url}")
-
-        # Save downloaded ID for visual cropping files mapping
         self._resolved_store_id = store_code
+        return pdf_url
 
+    def discover_flyers(self, store_code: str) -> List[Dict[str, Any]]:
+        """
+        Returns the single active flyer catalog for the INS store code.
+        """
+        pdf_url = None
+        try:
+            pdf_url = self._resolve_flyer_pdf_url(store_code)
+        except Exception as e:
+            logger.error(f"Failed to resolve INS flyer PDF URL: {e}")
+
+        return [{
+            "id": store_code,
+            "title": f"IN's Flyer Circular ({store_code})",
+            "validity": "Active Circular",
+            "featured": True,
+            "pdf_url": pdf_url
+        }]
+
+    def download_flyers(self, store_id: str) -> List[str]:
+        """
+        Crawls the IN's website store/region spans to resolve the target PDF URL,
+        downloads it, and stores it locally.
+        """
+        pdf_url = self._resolve_flyer_pdf_url(store_id)
+        if not pdf_url:
+            logger.error("Could not construct IN's target PDF URL.")
+            return []
+
+        store_code = self._resolved_store_id or "E-Campagna-OF"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        }
+        
         # 5. Download the PDF flyer locally
         filename = f"ins_{store_code}.pdf"
         os.makedirs(self._download_subdir, exist_ok=True)

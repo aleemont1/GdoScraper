@@ -165,6 +165,8 @@ def test_standard_image_lookup():
     # Exclusion keyword block check
     assert get_standard_image("Yogurt alle Mele") is None
     assert get_standard_image("Succo di Arance") is None
+    assert get_standard_image("Insalata di mare") is None
+    assert get_standard_image("Insalata russa") is None
 
 
 def test_fuzzy_image_reuse(temp_db_path):

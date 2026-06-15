@@ -68,7 +68,8 @@ def get_standard_image(product_name: str) -> Optional[str]:
         "gelato", "sorbetto", "confettura", "marmellata", "essiccat", "secc", 
         "bevanda", "liquore", "sciroppo", "preparato", "snack", "torta", 
         "biscott", "te ", "tè ", "infuso", "aroma", "crema", "pelati",
-        "scatola", "lattina", "cotto", "omogeneizzato", "nettare"
+        "scatola", "lattina", "cotto", "omogeneizzato", "nettare",
+        "insalata di", "insalata russa", "insalata caprese"
     ]
     
     is_excluded_from_fresh = any(exc in norm for exc in produce_exclusions)

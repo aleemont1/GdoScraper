@@ -85,7 +85,6 @@ source .venv/bin/activate
 uv sync
 ```
 
-Se si desidera comunque installarlo nativamente su Windows senza WSL, consultare le istruzioni dettagliate nella [Guida all'Installazione](docs/installation.md#c-windows-nativo---sconsigliato).
 
 ### Configurazione Ambiente (`.env`)
 Crea un file `.env` nella root del progetto per configurare le chiavi API opzionali per l'audit AI:

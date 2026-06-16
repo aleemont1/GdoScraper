@@ -1,6 +1,6 @@
 # Guida all'Installazione
 
-Questa guida spiega come installare il **GDO Supermarket Scraper** su Windows, Linux e macOS, descrivendo i requisiti di sistema ed i passaggi di configurazione.
+Questa guida spiega come installare il **GDO Supermarket Scraper** su Windows (tramite WSL), Linux e macOS, descrivendo i requisiti di sistema ed i passaggi di configurazione.
 
 ---
 
@@ -10,21 +10,19 @@ Prima di procedere con l'installazione, assicurati di avere i seguenti component
 
 ### A. Git (Obbligatorio)
 È necessario avere **Git** installato per clonare il repository.
-* **Linux**: `sudo apt install git`
+* **Linux / WSL**: `sudo apt install git`
 * **macOS**: `brew install git`
-* **Windows**: Installa [Git for Windows](https://gitforwindows.org/).
 
 > [!IMPORTANT]
 > Il repository è privato (`github.com/aleemont1/gdoscraper`). Per poterlo clonare è necessario generare un **Personal Access Token (PAT)** di GitHub con i permessi di lettura per i repository privati (`repo` o `contents:read`).
 
 ### B. Python 3.10+
 Il codice è ottimizzato e testato per le versioni recenti di Python (consigliato **Python 3.11** o superiore).
-* **Linux/macOS**: Installa tramite il gestore di pacchetti di sistema.
-* **Windows (Nativo)**: Assicurati di spuntare la casella **"Add python.exe to PATH"** durante l'installazione.
+* **Linux / WSL / macOS**: Installa tramite il gestore di pacchetti di sistema.
 
 ### C. Tesseract OCR (Opzionale, richiesto per fallback OCR/IN'S)
 Il driver per **IN'S Mercato** ed i meccanismi di fallback OCR offline utilizzano Tesseract per estrarre testi dalle immagini dei volantini.
-* **Linux (Ubuntu/Debian)**:
+* **Linux / WSL (Ubuntu/Debian)**:
   ```bash
   sudo apt update
   sudo apt install -y tesseract-ocr tesseract-ocr-ita
@@ -33,29 +31,21 @@ Il driver per **IN'S Mercato** ed i meccanismi di fallback OCR offline utilizzan
   ```bash
   brew install tesseract tesseract-lang
   ```
-* **Windows (Nativo)**:
-  1. Scarica l'installer da [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki).
-  2. Esegui l'installer ed installa i dati per la lingua italiana (`ita`).
-  3. Aggiungi il percorso di installazione di Tesseract (es. `C:\Program Files\Tesseract-OCR`) alle variabili di ambiente del sistema (PATH).
 
 ### D. Gestore di pacchetti `uv` (Consigliato)
 Il progetto utilizza **`uv`**, un gestore di pacchetti Python estremamente rapido sviluppato da Astral.
-* **Linux/macOS**:
+* **Linux / WSL / macOS**:
   ```bash
   curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
-* **Windows (Nativo)**:
-  ```powershell
-  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
 
 ---
 
 ## 2. Passaggi per l'Installazione
 
-### A. Windows (Consigliato tramite WSL)
+### A. Windows (Tramite WSL - Unica modalità supportata)
 
-Per gli utenti Windows, **si raccomanda caldamente l'utilizzo di WSL (Windows Subsystem for Linux)**. L'installazione di pacchetti complessi come Tesseract OCR e la gestione delle variabili di sistema nativamente su Windows può risultare estremamente problematica.
+Per gli utenti Windows, **l'utilizzo di WSL (Windows Subsystem for Linux) è l'unica modalità di installazione supportata**. L'ambiente Linux WSL garantisce stabilità e facilità di installazione delle dipendenze grafiche e di Tesseract OCR.
 
 1. **Installa WSL** (se non presente) aprendo PowerShell come amministratore ed eseguendo:
    ```powershell
@@ -107,25 +97,6 @@ Per gli utenti Windows, **si raccomanda caldamente l'utilizzo di WSL (Windows Su
 
 ---
 
-### C. Windows (Nativo - Sconsigliato)
-
-Se si desidera procedere con l'installazione nativa senza ricorrere a WSL:
-
-1. **Clona il repository** in PowerShell (con il tuo token PAT):
-   ```powershell
-   git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
-   cd gdoscraper
-   ```
-
-2. **Configura l'ambiente virtuale ed installa le dipendenze**:
-   ```powershell
-   uv venv
-   .venv\Scripts\Activate.ps1
-   uv sync
-   ```
-
----
-
 ## 3. Configurazione delle Variabili d'Ambiente
 
 Il sistema supporta l'integrazione con modelli di intelligenza artificiale per l'audit visivo ed il fallback OCR (Gemini e Claude). Per configurare le chiavi API:
@@ -146,7 +117,7 @@ Per verificare che l'installazione sia andata a buon fine ed eseguire la suite d
 
 ```bash
 # Attiva l'ambiente virtuale se non è già attivo
-source .venv/bin/activate # Su Windows Nativo: .venv\Scripts\Activate.ps1
+source .venv/bin/activate
 
 # Esegui i test unitari
 pytest

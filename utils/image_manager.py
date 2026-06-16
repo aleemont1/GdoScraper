@@ -40,14 +40,14 @@ def get_standard_image(product_name: str) -> Optional[str]:
     # Fresh Produce (Ortofrutta) - Substring mappings
     fruit_veg_map = {
         "banan": "banane.png",
-        "mela": "mele.png",
         "mele": "mele.png",
         "limon": "limoni.png",
         "aranc": "arance.png",
         "pomodor": "pomodori.png",
         "zucchin": "zucchine.png",
         "patat": "patate.png",
-        "insalat": "insalata.png",
+        "insalat": "lattuga.png",
+        "lattuga": "lattuga.png",
         "carot": "carote.png",
         "cipoll": "cipolle.png",
         "fragol": "fragole.png",
@@ -58,6 +58,16 @@ def get_standard_image(product_name: str) -> Optional[str]:
         "uva": "uva.png",
         "pere": "pere.png",
         "pera": "pere.png",
+        "melanzan": "melanzane.png",
+        "peperon": "peperoni.png",
+        "cavolfior": "cavolfiore.png",
+        "broccol": "broccoli.png",
+        "cavolo": "cavolo.png",
+        "finocch": "finocchi.png",
+        "sedano": "sedano.png",
+        "radicch": "radicchio.png",
+        "ravanell": "ravanelli.png",
+        "zucchin": "zucchine.png",
     }
 
     # Exclusion list for fresh produce standard images:

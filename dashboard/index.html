@@ -234,12 +234,21 @@
                                     </label>
                                 </div>
                                 <div class="input-wrapper" id="engine-wrapper">
-                                    <label for="engine-input" data-i18n="extraction_engine_label">Motore di Estrazione</label>
+                                    <label for="engine-input" data-i18n="flyer_type_label">Tipo di Volantino</label>
                                     <select id="engine-input">
-                                        <option value="AUTO" data-i18n="opt_engine_auto">Rilevamento Automatico Griglia / OCR</option>
-                                        <option value="TESSERACT" data-i18n="opt_engine_tesseract">Tesseract OCR Offline</option>
-                                        <option value="GEMINI" data-i18n="opt_engine_gemini">API Multimodale Gemini</option>
-                                        <option value="CLAUDE" data-i18n="opt_engine_claude">API Claude Haiku</option>
+                                        <option value="AUTO" data-i18n="opt_flyer_selectable">Volantino con testo selezionabile (vettoriale)</option>
+                                        <option value="TESSERACT" data-i18n="opt_flyer_simple">Volantino semplice (immagine / scannerizzato)</option>
+                                    </select>
+                                </div>
+                                <div class="input-wrapper" id="ai-enable-wrapper" style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
+                                    <input type="checkbox" id="ai-enable-input" style="width: auto; margin: 0;">
+                                    <label for="ai-enable-input" style="margin: 0; font-weight: normal; cursor: pointer;" data-i18n="ai_enable_label">Usa intelligenza artificiale (API Cloud)</label>
+                                </div>
+                                <div class="input-wrapper hidden" id="ai-model-wrapper" style="margin-top: 15px;">
+                                    <label for="ai-model-input" data-i18n="ai_model_label">Modello AI da utilizzare</label>
+                                    <select id="ai-model-input">
+                                        <option value="CLAUDE" data-i18n="opt_model_claude">Claude Sonnet (Audit Visivo / Correzioni)</option>
+                                        <option value="GEMINI" data-i18n="opt_model_gemini">Gemini Pro (Estrazione OCR / Velocità)</option>
                                     </select>
                                 </div>
                             </div>

@@ -69,11 +69,13 @@ const translations = {
         search_radius_label: "Raggio di ricerca (km)",
         target_db_path_label: "Percorso Database Target",
         parallel_execution_label: "Esecuzione Parallela",
-        extraction_engine_label: "Motore di Estrazione",
-        opt_engine_auto: "Rilevamento Automatico Griglia / OCR",
-        opt_engine_tesseract: "Tesseract OCR Offline",
-        opt_engine_gemini: "API Multimodale Gemini",
-        opt_engine_claude: "API Claude (Audit Visivo / OCR)",
+        flyer_type_label: "Tipo di Volantino",
+        opt_flyer_selectable: "Volantino con testo selezionabile (vettoriale)",
+        opt_flyer_simple: "Volantino semplice (immagine / scannerizzato)",
+        ai_enable_label: "Usa intelligenza artificiale (API Cloud)",
+        ai_model_label: "Modello AI da utilizzare",
+        opt_model_claude: "Claude Sonnet (Audit Visivo / Correzioni)",
+        opt_model_gemini: "Gemini Pro (Estrazione OCR / Velocità)",
         btn_start_extraction: "Avvia Estrazione Dati",
         pipeline_monitor_title: "Stato dell'operazione",
         pipeline_monitor_subtitle: "Dettagli e messaggi dell'attività in corso",
@@ -185,11 +187,13 @@ const translations = {
         search_radius_label: "Search Radius (km)",
         target_db_path_label: "Target Database path",
         parallel_execution_label: "Parallel execution",
-        extraction_engine_label: "Extraction Engine",
-        opt_engine_auto: "Auto-detect Grid / OCR",
-        opt_engine_tesseract: "Offline Tesseract OCR",
-        opt_engine_gemini: "Gemini Multimodal API",
-        opt_engine_claude: "Claude API (Visual Audit / OCR)",
+        flyer_type_label: "Flyer Type",
+        opt_flyer_selectable: "Flyer with selectable text (vectorial)",
+        opt_flyer_simple: "Simple flyer (image / scanned)",
+        ai_enable_label: "Use artificial intelligence (Cloud API)",
+        ai_model_label: "AI Model to use",
+        opt_model_claude: "Claude Sonnet (Visual Audit / Fixes)",
+        opt_model_gemini: "Gemini Pro (OCR Extraction / Speed)",
         btn_start_extraction: "Start Data Extraction",
         pipeline_monitor_title: "Operation status",
         pipeline_monitor_subtitle: "Activity details and messages",
@@ -313,6 +317,19 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         document.body.classList.remove('dark-mode');
         document.getElementById('theme-icon').textContent = '☾';
+    }
+
+    // Toggle AI Model dropdown visibility based on AI checkbox
+    const aiEnableInput = document.getElementById('ai-enable-input');
+    const aiModelWrapper = document.getElementById('ai-model-wrapper');
+    if (aiEnableInput && aiModelWrapper) {
+        aiEnableInput.addEventListener('change', () => {
+            if (aiEnableInput.checked) {
+                aiModelWrapper.classList.remove('hidden');
+            } else {
+                aiModelWrapper.classList.add('hidden');
+            }
+        });
     }
 
     // Set default wizard panels visibility
@@ -743,6 +760,28 @@ function closeStatsModal(event) {
     modal.classList.add('hidden');
 }
 
+/* Helper to update flyer type engine & AI inputs visibility */
+function updateEngineAndAiVisibility(showEngine) {
+    const engineWrapper = document.getElementById('engine-wrapper');
+    const aiEnableWrapper = document.getElementById('ai-enable-wrapper');
+    const aiModelWrapper = document.getElementById('ai-model-wrapper');
+    const aiEnableInput = document.getElementById('ai-enable-input');
+
+    if (showEngine) {
+        if (engineWrapper) engineWrapper.classList.remove('hidden');
+        if (aiEnableWrapper) aiEnableWrapper.classList.remove('hidden');
+        if (aiEnableInput && aiEnableInput.checked) {
+            if (aiModelWrapper) aiModelWrapper.classList.remove('hidden');
+        } else {
+            if (aiModelWrapper) aiModelWrapper.classList.add('hidden');
+        }
+    } else {
+        if (engineWrapper) engineWrapper.classList.add('hidden');
+        if (aiEnableWrapper) aiEnableWrapper.classList.add('hidden');
+        if (aiModelWrapper) aiModelWrapper.classList.add('hidden');
+    }
+}
+
 /* Page 2: Data Extraction Wizard Logic */
 function selectSupermarket(chain) {
     currentSupermarket = chain;
@@ -761,7 +800,6 @@ function selectSupermarket(chain) {
     const targetStoreSection = document.getElementById('target-store-section');
     const manualUploadSection = document.getElementById('manual-upload-section');
     const parallelWrapper = document.getElementById('parallel-wrapper');
-    const engineWrapper = document.getElementById('engine-wrapper');
     
     // Reset lists
     selectedStoreId = null;
@@ -773,7 +811,7 @@ function selectSupermarket(chain) {
         targetStoreSection.classList.add('hidden');
         manualUploadSection.classList.remove('hidden');
         parallelWrapper.classList.remove('hidden');
-        engineWrapper.classList.remove('hidden');
+        updateEngineAndAiVisibility(true);
         document.getElementById('btn-trigger-scrape').textContent = t('msg_upload_manual_btn');
     } else {
         targetStoreSection.classList.remove('hidden');
@@ -783,19 +821,19 @@ function selectSupermarket(chain) {
         // Hide options based on supermarket capabilities
         if (chain === 'coop') {
             parallelWrapper.classList.add('hidden'); // Coop doesn't need parallel parsing (API based)
-            engineWrapper.classList.add('hidden');     // Coop uses direct REST API
+            updateEngineAndAiVisibility(false);
             document.getElementById('store-target-input').value = 'Cesena';
         } else if (chain === 'conad') {
             parallelWrapper.classList.remove('hidden'); // Conad downloads PDF flyers, parallel parsing is useful
-            engineWrapper.classList.remove('hidden');   // Conad supports visual audit engines
-            document.getElementById('store-target-input').value = '44.1396,12.2464';
+            updateEngineAndAiVisibility(true);
+            document.getElementById('store-target-input').value = 'Cesena';
         } else if (chain === 'ins') {
             parallelWrapper.classList.remove('hidden');
-            engineWrapper.classList.remove('hidden');   // IN's uses OCR, lets you configure engine
+            updateEngineAndAiVisibility(true);
             document.getElementById('store-target-input').value = 'Cesena';
         } else if (chain === 'dpiu') {
             parallelWrapper.classList.add('hidden');    // Dpiù uses direct REST API
-            engineWrapper.classList.add('hidden');
+            updateEngineAndAiVisibility(false);
             document.getElementById('store-target-input').value = 'Cesena';
         }
     }
@@ -1050,9 +1088,14 @@ async function triggerScrapeExecution() {
         formData.append("file", manualFile);
         formData.append("supermarket", document.getElementById('manual-supermarket-name').value.trim() || 'MANUAL');
         formData.append("store_id", document.getElementById('manual-store-id').value.trim() || 'MANUAL_STORE');
-        formData.append("engine", document.getElementById('engine-input').value);
-        formData.append("use_gemini", document.getElementById('engine-input').value === 'GEMINI' ? 'true' : 'false');
-        formData.append("use_claude", document.getElementById('engine-input').value === 'CLAUDE' ? 'true' : 'false');
+
+        const useAi = document.getElementById('ai-enable-input').checked;
+        const aiModel = document.getElementById('ai-model-input').value;
+        const flyerType = document.getElementById('engine-input').value;
+
+        formData.append("engine", useAi ? aiModel : flyerType);
+        formData.append("use_gemini", (useAi && aiModel === 'GEMINI') ? 'true' : 'false');
+        formData.append("use_claude", (useAi && aiModel === 'CLAUDE') ? 'true' : 'false');
         
         appendLogLine('system', `${t('msg_uploading_manual_flyer', {name: manualFile.name})}`);
         
@@ -1100,6 +1143,10 @@ async function triggerScrapeExecution() {
         
         btn.disabled = true;
         
+        const useAi = document.getElementById('ai-enable-input').checked;
+        const aiModel = document.getElementById('ai-model-input').value;
+        const flyerType = document.getElementById('engine-input').value;
+
         const payload = {
             supermarket: currentSupermarket,
             store_id: selectedStoreId,
@@ -1107,7 +1154,7 @@ async function triggerScrapeExecution() {
             radius: parseInt(document.getElementById('radius-input').value) || 15,
             db_path: document.getElementById('db-path-input').value || 'storage/promotions.db',
             parallel: document.getElementById('parallel-input').checked,
-            engine: document.getElementById('engine-input').value
+            engine: useAi ? aiModel : flyerType
         };
         
         appendLogLine('system', t('msg_initiating_live_scraping', {chain: currentSupermarket.toUpperCase(), id: selectedStoreId}));

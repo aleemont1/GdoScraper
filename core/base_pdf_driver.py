@@ -340,7 +340,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     store_id,
                                     page_idx,
                                     page_offers,
-                                    validity_string
+                                    validity_string,
+                                    page=page
                                 )
                                 
                         for offer in page_offers:
@@ -472,7 +473,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
                                     offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                                     
-                                    image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
+                                    image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id, page=page)
                                             
                                     offer = ProductOffer(
                                         offer_id=offer_id,
@@ -778,7 +779,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         bbox: Optional[List[int]],
         pil_img: Any,
         store_id: str,
-        offer_id: str
+        offer_id: str,
+        page: Optional[Any] = None
     ) -> Optional[str]:
         """
         Extracts a product image using a standard lookup or crops it from the page image.
@@ -789,6 +791,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             pil_img: PIL Image object of the flyer page.
             store_id: Store identifier.
             offer_id: Unique offer hash.
+            page: pdfplumber Page object (optional, for snapping to native PDF raster images).
             
         Returns:
             The image URL/path or None.
@@ -799,27 +802,90 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             image_url = find_reusable_image(self._supermarket_name, name)
             
         if not image_url and bbox and len(bbox) == 4 and pil_img:
-            ymin, xmin, ymax, xmax = bbox
             w_px, h_px = pil_img.size
+            page_w = float(page.width) if page else None
+            page_h = float(page.height) if page else None
             
-            px_x0 = int((xmin / 1000.0) * w_px)
-            px_y0 = int((ymin / 1000.0) * h_px)
-            px_x1 = int((xmax / 1000.0) * w_px)
-            px_y1 = int((ymax / 1000.0) * h_px)
-            
-            box_w = px_x1 - px_x0
-            box_w = max(1, box_w)
-            box_h = px_y1 - px_y0
-            box_h = max(1, box_h)
-            pad_x = int(box_w * 0.03)  # Refined 3% safety margin
-            pad_y = int(box_h * 0.03)
-            
-            crop_box = (
-                max(0, px_x0 - pad_x),
-                max(0, px_y0 - pad_y),
-                min(w_px, px_x1 + pad_x),
-                min(h_px, px_y1 + pad_y)
-            )
+            best_img = None
+            if page and page_w and page_h:
+                ymin, xmin, ymax, xmax = bbox
+                # Convert normalized bbox [0, 1000] to PDF points
+                bbox_x0 = (xmin / 1000.0) * page_w
+                bbox_y0 = (ymin / 1000.0) * page_h
+                bbox_x1 = (xmax / 1000.0) * page_w
+                bbox_y1 = (ymax / 1000.0) * page_h
+                
+                matching_images = []
+                for img in getattr(page, "images", []):
+                    img_x0 = img.get("x0", 0)
+                    img_x1 = img.get("x1", 0)
+                    img_y0 = img.get("top", 0)
+                    img_y1 = img.get("bottom", 0)
+                    
+                    img_w = img.get("width", 0)
+                    img_h = img.get("height", 0)
+                    if img_w <= 20 or img_h <= 20:
+                        continue # ignore small decoration icons
+                        
+                    # Calculate intersection over the image area
+                    x_left = max(bbox_x0, img_x0)
+                    y_top = max(bbox_y0, img_y0)
+                    x_right = min(bbox_x1, img_x1)
+                    y_bottom = min(bbox_y1, img_y1)
+                    
+                    if x_right > x_left and y_bottom > y_top:
+                        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+                        img_area = img_w * img_h
+                        overlap_ratio = intersection_area / img_area
+                        
+                        # Also check if image center is within or very close to bbox
+                        img_cx = (img_x0 + img_x1) / 2.0
+                        img_cy = (img_y0 + img_y1) / 2.0
+                        center_match = (bbox_x0 - 20) <= img_cx <= (bbox_x1 + 20) and (bbox_y0 - 20) <= img_cy <= (bbox_y1 + 20)
+                        
+                        if overlap_ratio > 0.4 or center_match:
+                            matching_images.append((img, overlap_ratio))
+                            
+                if matching_images:
+                    matching_images.sort(key=lambda item: (item[1], item[0]["width"] * item[0]["height"]), reverse=True)
+                    best_img = matching_images[0][0]
+                    logger.info(f"Snapping VLM bbox for '{name}' to native PDF raster image coordinate box: x0={best_img['x0']:.1f}, top={best_img['top']:.1f}")
+
+            if best_img and page_w and page_h:
+                scale_x = w_px / page_w
+                scale_y = h_px / page_h
+                pad = 2.0
+                ix0 = max(0.0, best_img["x0"] - pad)
+                iy0 = max(0.0, best_img["top"] - pad)
+                ix1 = min(page_w, best_img["x1"] + pad)
+                iy1 = min(page_h, best_img["bottom"] + pad)
+                
+                crop_box = (
+                    max(0, int(ix0 * scale_x)),
+                    max(0, int(iy0 * scale_y)),
+                    min(w_px, int(ix1 * scale_x)),
+                    min(h_px, int(iy1 * scale_y))
+                )
+            else:
+                ymin, xmin, ymax, xmax = bbox
+                px_x0 = int((xmin / 1000.0) * w_px)
+                px_y0 = int((ymin / 1000.0) * h_px)
+                px_x1 = int((xmax / 1000.0) * w_px)
+                px_y1 = int((ymax / 1000.0) * h_px)
+                
+                box_w = px_x1 - px_x0
+                box_w = max(1, box_w)
+                box_h = px_y1 - px_y0
+                box_h = max(1, box_h)
+                pad_x = int(box_w * 0.03)  # Refined 3% safety margin
+                pad_y = int(box_h * 0.03)
+                
+                crop_box = (
+                    max(0, px_x0 - pad_x),
+                    max(0, px_y0 - pad_y),
+                    min(w_px, px_x1 + pad_x),
+                    min(h_px, px_y1 + pad_y)
+                )
             
             os.makedirs("storage/images", exist_ok=True)
             file_name = f"{self._supermarket_name}_{store_id}_{offer_id}.png"
@@ -1042,7 +1108,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             payload_str = f"{self._supermarket_name}:{store_id}:ALL:{name}:{price:.2f}"
                             offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                             
-                            image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
+                            image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id, page=page)
                                     
                             offer = ProductOffer(
                                 offer_id=offer_id,
@@ -1076,7 +1142,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         store_id: str,
         page_idx: int,
         initial_offers: List[ProductOffer],
-        validity_string: Optional[str] = None
+        validity_string: Optional[str] = None,
+        page: Optional[Any] = None
     ) -> List[ProductOffer]:
         """
         Visually audits the vector-extracted offers of a page using Claude.
@@ -1316,7 +1383,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                         logger.info(f"[Visual Audit] Reusing high-quality vector-extracted image for: '{name}'")
                     else:
                         # Fallback to cropping from page using Claude's bounding box
-                        image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
+                        image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id, page=page)
                             
                     offer = ProductOffer(
                         offer_id=offer_id,

@@ -1100,6 +1100,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
         simplified_offers = []
         for o in initial_offers:
             simplified_offers.append({
+                "id": o.offer_id,
                 "name": o.name,
                 "brand": o.brand or "",
                 "weight_or_volume": o.weight_or_volume or "",
@@ -1152,6 +1153,9 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             "7. **Bounding Box System**:\n"
             "   - Use normalized coordinates `[ymin, xmin, ymax, xmax]` in range `[0, 1000]`.\n"
             "   - Frame ONLY the visual product package/photo with a tiny 2-3% safety margin.\n"
+            "8. **Map to Input Offer ID (`original_id`)**:\n"
+            "   - If an audited offer matches or corrects an item from the input `<vector_extracted_offers>` list, map it back to that item's `id` inside the `original_id` field.\n"
+            "   - If the offer is newly added or split from another item (representing a different physical item on the page), set `original_id` to null or omit it.\n"
             "</audit_instructions>\n\n"
             "<validation_rules>\n"
             "- **Product Name (name)**: Clean Title Case in Italian (e.g., 'Caffè macinato'). No brand or weight in the name field.\n"
@@ -1176,6 +1180,10 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                 "reasoning": {
                                     "type": "string",
                                     "description": "Describe the product packaging visually and explain any correction, split, addition or verification made."
+                                },
+                                "original_id": {
+                                    "type": "string",
+                                    "description": "The unique 'id' of the matching product from the input <vector_extracted_offers> list, or null/absent if this is a newly added or split offer."
                                 },
                                 "name": {
                                     "type": "string",
@@ -1272,6 +1280,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 offers_data = tool_use.input.get("offers", [])
                 logger.info(f"[Visual Audit] Page {page_idx + 1}: Claude verified {len(offers_data)} offers.")
                 
+                initial_offers_by_id = {init_o.offer_id: init_o for init_o in initial_offers}
+                
                 for o in offers_data:
                     name = o.get("name")
                     price = o.get("price")
@@ -1289,7 +1299,24 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                     payload_str = f"{self._supermarket_name}:{store_id}:{validity_string or 'ALL'}:{name}:{price:.2f}"
                     offer_id = hashlib.sha256(payload_str.encode("utf-8")).hexdigest()[:32]
                     
-                    image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
+                    original_id = o.get("original_id")
+                    matched_initial_offer = initial_offers_by_id.get(original_id) if original_id else None
+                    
+                    if not matched_initial_offer:
+                        # Try exact match on name (case-insensitive) and price as fallback
+                        for init_o in initial_offers:
+                            if init_o.name.lower() == name.lower() and init_o.price == price:
+                                matched_initial_offer = init_o
+                                break
+                                
+                    image_url = None
+                    if matched_initial_offer and matched_initial_offer.image_url:
+                        # Reuse the high-quality image parsed directly from vector layers
+                        image_url = matched_initial_offer.image_url
+                        logger.info(f"[Visual Audit] Reusing high-quality vector-extracted image for: '{name}'")
+                    else:
+                        # Fallback to cropping from page using Claude's bounding box
+                        image_url = self._extract_and_save_product_image(name, bbox, pil_img, store_id, offer_id)
                             
                     offer = ProductOffer(
                         offer_id=offer_id,

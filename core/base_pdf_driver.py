@@ -390,7 +390,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                         "5. **Frame Bounding Box (`bbox`)**:\n"
                         "   - Locate the boundary of the **PRODUCT PHOTO or packaging image ONLY**.\n"
                         "   - Do **NOT** include the surrounding text descriptions, price tags/bubbles, brand logos (unless on the package), or adjacent items.\n"
-                        "   - Calculate normalized coordinates `[ymin, xmin, ymax, xmax]` from `0` to `1000` (where `0` is the top/left and `1000` is the bottom/right of the page).\n"
+                        "   - Calculate normalized coordinates `[ymin, xmin, ymax, xmax]` from `0` to `1000` using the red-labeled light grid overlaid on the page as a reference ruler.\n"
                         "   - Add a tiny safety margin of 2-3% around the product packaging to prevent tight cropping.\n"
                         "</instructions>\n\n"
                         "<validation_rules>\n"
@@ -423,6 +423,8 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                             
                             try:
                                 pil_img = page.to_image(resolution=120).original
+                                from utils.image_manager import draw_coordinate_grid
+                                grid_pil_img = draw_coordinate_grid(pil_img)
                             except Exception as render_err:
                                 logger.error(f"Failed to render page {page_idx + 1}: {render_err}")
                                 continue
@@ -435,7 +437,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                                     try:
                                         response = client.models.generate_content(
                                             model=model_name,
-                                            contents=[pil_img, prompt],
+                                            contents=[grid_pil_img, prompt],
                                             config=types.GenerateContentConfig(
                                                 response_mime_type="application/json",
                                                 response_schema=ExtractedOffersList,
@@ -952,7 +954,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             "5. **Frame Bounding Box (`bbox`)**:\n"
             "   - Locate the boundary of the **PRODUCT PHOTO or packaging image ONLY**.\n"
             "   - Do **NOT** include the surrounding text descriptions, price tags/bubbles, brand logos (unless on the package), or adjacent items.\n"
-            "   - Calculate normalized coordinates `[ymin, xmin, ymax, xmax]` from `0` to `1000` (where `0` is the top/left and `1000` is the bottom/right of the page).\n"
+            "   - Calculate normalized coordinates `[ymin, xmin, ymax, xmax]` from `0` to `1000` using the red-labeled light grid overlaid on the page as a reference ruler.\n"
             "   - Add a tiny safety margin of 2-3% around the product packaging to prevent tight cropping.\n"
             "</instructions>\n\n"
             "<validation_rules>\n"
@@ -1033,12 +1035,14 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                     
                     try:
                         pil_img = page.to_image(resolution=120).original
+                        from utils.image_manager import draw_coordinate_grid
+                        grid_pil_img = draw_coordinate_grid(pil_img)
                     except Exception as render_err:
                         logger.error(f"Failed to render page {page_idx + 1} during fallback: {render_err}")
                         continue
                         
                     buffered = io.BytesIO()
-                    pil_img.save(buffered, format="PNG")
+                    grid_pil_img.save(buffered, format="PNG")
                     img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
                     
                     try:
@@ -1177,9 +1181,11 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
                 "promo_type": o.promo_type
             })
             
-        # Encode image to base64
+        # Encode image with grid overlay to base64
+        from utils.image_manager import draw_coordinate_grid
+        grid_pil_img = draw_coordinate_grid(pil_img)
         buffered = io.BytesIO()
-        pil_img.save(buffered, format="PNG")
+        grid_pil_img.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
         
         prompt = (
@@ -1219,6 +1225,7 @@ class AbstractPdfFlyerDriver(AbstractSupermarketDriver):
             "     - `STANDARD`: For standard promotional pricing without explicit discount markings.\n"
             "7. **Bounding Box System**:\n"
             "   - Use normalized coordinates `[ymin, xmin, ymax, xmax]` in range `[0, 1000]`.\n"
+            "   - A red-labeled light grid is overlaid on the image to help you read coordinates exactly.\n"
             "   - Frame ONLY the visual product package/photo with a tiny 2-3% safety margin.\n"
             "8. **Map to Input Offer ID (`original_id`)**:\n"
             "   - If an audited offer matches or corrects an item from the input `<vector_extracted_offers>` list, map it back to that item's `id` inside the `original_id` field.\n"

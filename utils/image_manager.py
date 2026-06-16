@@ -223,3 +223,55 @@ def post_process_image_background(pil_img: Image.Image, padding_percent: float =
         logger.warning(f"Background auto-trimming post-process failed: {err}")
 
     return pil_img
+
+
+def draw_coordinate_grid(pil_img: Image.Image) -> Image.Image:
+    """
+    Superimposes a transparent/light coordinate grid (intervals of 100 on a 0-1000 scale)
+    with red numeric labels onto a copy of the image. Helps VLMs locate bounding boxes precisely.
+    """
+    from PIL import ImageDraw, ImageFont
+    
+    # Work on a copy of the image so that the original remains clean for final cropping
+    grid_img = pil_img.copy()
+    w, h = grid_img.size
+    
+    draw = ImageDraw.Draw(grid_img)
+    
+    # 1. Draw light coordinate grid lines
+    # We use a neutral light gray (200, 200, 200) so it doesn't obstruct visual text
+    grid_color = (200, 200, 200)
+    
+    for i in range(100, 1000, 100):
+        # Vertical grid line at x = i (normalized to w)
+        x = int((i / 1000.0) * w)
+        draw.line([(x, 0), (x, h)], fill=grid_color, width=1)
+        
+        # Horizontal grid line at y = i (normalized to h)
+        y = int((i / 1000.0) * h)
+        draw.line([(0, y), (w, y)], fill=grid_color, width=1)
+        
+    # 2. Draw border numeric coordinates (Red text for maximum visibility to VLMs)
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+        
+    text_color = (255, 0, 0)
+    
+    for i in range(100, 1000, 100):
+        x = int((i / 1000.0) * w)
+        y = int((i / 1000.0) * h)
+        
+        # Top margin labels
+        draw.text((x + 2, 2), str(i), fill=text_color, font=font)
+        # Bottom margin labels
+        draw.text((x + 2, h - 15), str(i), fill=text_color, font=font)
+        
+        # Left margin labels
+        draw.text((2, y + 2), str(i), fill=text_color, font=font)
+        # Right margin labels
+        draw.text((w - 25, y + 2), str(i), fill=text_color, font=font)
+        
+    return grid_img
+

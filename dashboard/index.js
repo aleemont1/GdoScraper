@@ -72,7 +72,7 @@ const translations = {
         flyer_type_label: "Tipo di Volantino",
         opt_flyer_selectable: "Volantino con testo selezionabile (vettoriale)",
         opt_flyer_simple: "Volantino semplice (immagine / scannerizzato)",
-        ai_enable_label: "Usa intelligenza artificiale (API Cloud)",
+        ai_enable_label: "Usa IA",
         ai_model_label: "Modello AI da utilizzare",
         opt_model_claude: "Claude Sonnet (Audit Visivo / Correzioni)",
         opt_model_gemini: "Gemini Pro (Estrazione OCR / Velocità)",

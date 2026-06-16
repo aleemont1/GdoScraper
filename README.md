@@ -42,46 +42,50 @@ ConadSupermarketDriver   INSSupermarketDriver  CoopSupermarketDriver  DpiuSuperm
 
 ## 2. Requisiti e Installazione
 
-Il progetto richiede **Python 3.10+** ed utilizza **`uv`** come package manager per garantire la riproducibilità ultra-rapida delle dipendenze.
+Il progetto richiede **Git** per il controllo versione, **Python 3.10+** ed utilizza **`uv`** come gestore di pacchetti per garantire la riproducibilità ultra-rapida delle dipendenze.
 
-### Prerequisito: Tesseract OCR (Richiesto per fallback OCR/IN'S)
-* **Linux (Ubuntu/Debian)**:
-  ```bash
-  sudo apt update
-  sudo apt install -y tesseract-ocr tesseract-ocr-ita
-  ```
-* **macOS (via Homebrew)**:
-  ```bash
-  brew install tesseract tesseract-lang
-  ```
-* **Windows**:
-  Scarica l'installer da [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki) (includi i dati per la lingua `ita`) ed aggiungi la cartella di installazione al PATH di sistema.
+> [!IMPORTANT]
+> Il repository è privato (`github.com/aleemont1/gdoscraper`). Per poterlo clonare è necessario generare un **Personal Access Token (PAT)** di GitHub con i permessi di lettura per i repository privati (`repo` o `contents:read`) ed utilizzarlo nell'URL di clonazione:
+> `git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git`
+
+Per consultare la guida dettagliata all'installazione con la configurazione di Tesseract OCR, visita la [Guida all'Installazione](docs/installation.md).
 
 ### Installazione su Linux / macOS
+Esegui questi comandi nel terminale:
 ```bash
-# Installazione di uv (se non presente)
+# Installa uv (se non presente)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Configurazione del progetto
-git clone https://github.com/aleemont1/supermarket_scraper.git
-cd supermarket_scraper
+# Clona e configura
+git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
+cd gdoscraper
 uv venv
 source .venv/bin/activate
 uv sync
 ```
 
-### Installazione su Windows (PowerShell)
-```powershell
-# Installazione di uv (se non presente)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+### Installazione su Windows (Consigliato tramite WSL)
+Per evitare problemi legati alle dipendenze native di Windows, **si raccomanda caldamente l'utilizzo di WSL (Windows Subsystem for Linux)**.
 
-# Configurazione del progetto
-git clone https://github.com/aleemont1/supermarket_scraper.git
-cd supermarket_scraper
+Esegui questi comandi nella shell di WSL (Ubuntu):
+```bash
+# Aggiorna ed installa i requisiti di sistema
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv git tesseract-ocr tesseract-ocr-ita curl
+
+# Installa uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+
+# Clona e configura
+git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
+cd gdoscraper
 uv venv
-.venv\Scripts\Activate.ps1
+source .venv/bin/activate
 uv sync
 ```
+
+Se si desidera comunque installarlo nativamente su Windows senza WSL, consultare le istruzioni dettagliate nella [Guida all'Installazione](docs/installation.md#c-windows-nativo---sconsigliato).
 
 ### Configurazione Ambiente (`.env`)
 Crea un file `.env` nella root del progetto per configurare le chiavi API opzionali per l'audit AI:

@@ -46,7 +46,6 @@ def get_standard_image(product_name: str) -> Optional[str]:
         "pomodor": "pomodori.png",
         "zucchin": "zucchine.png",
         "patat": "patate.png",
-        "insalat": "lattuga.png",
         "lattuga": "lattuga.png",
         "carot": "carote.png",
         "cipoll": "cipolle.png",
@@ -67,27 +66,67 @@ def get_standard_image(product_name: str) -> Optional[str]:
         "sedano": "sedano.png",
         "radicch": "radicchio.png",
         "ravanell": "ravanelli.png",
-        "zucchin": "zucchine.png",
     }
 
     # Exclusion list for fresh produce standard images:
     # If the product name contains any of these processed/packaged keywords,
     # we block it from matching raw fresh fruit/vegetable illustrations.
     produce_exclusions = [
-        "yogurt", "yogourt", "succo", "passata", "purea", "salsa", "sugo", 
-        "gelato", "sorbetto", "confettura", "marmellata", "essiccat", "secc", 
-        "bevanda", "liquore", "sciroppo", "preparato", "snack", "torta", 
-        "biscott", "te ", "tè ", "infuso", "aroma", "crema", "pelati",
-        "scatola", "lattina", "cotto", "omogeneizzato", "nettare",
-        "insalata di", "insalata russa", "insalata caprese"
+        "yogurt",
+        "yogourt",
+        "succo",
+        "passata",
+        "purea",
+        "salsa",
+        "sugo",
+        "gelato",
+        "sorbetto",
+        "composta",
+        "centrifuga",
+        "confettura",
+        "marmellata",
+        "essiccat",
+        "secc",
+        "bevanda",
+        "liquore",
+        "sciroppo",
+        "preparato",
+        "snack",
+        "torta",
+        "biscott",
+        "te ",
+        "tè ",
+        "infuso",
+        "aroma",
+        "crema",
+        "pelati",
+        "scatola",
+        "lattina",
+        "cotto",
+        "omogeneizzato",
+        "nettare",
+        "insalata di",
+        "insalata russa",
+        "insalata caprese",
+        "insalata di riso",
+        "insalata di mare",
+        "insalata di pollo",
+        "insalata greca",
+        "insalata ricca",
+        "insalata mista",
+        "insalata di patate",
+        "insalata di tonno",
+        "insalata di pasta",
     ]
-    
+
     is_excluded_from_fresh = any(exc in norm for exc in produce_exclusions)
 
     if not is_excluded_from_fresh:
         for key, filename in fruit_veg_map.items():
             if key in norm:
-                logger.info(f"Standard fresh produce image match for '{product_name}' -> '{filename}'")
+                logger.info(
+                    f"Standard fresh produce image match for '{product_name}' -> '{filename}'"
+                )
                 return f"/storage/standard_images/{filename}"
 
     # Major Brands & Common Packaged Items
@@ -100,7 +139,9 @@ def get_standard_image(product_name: str) -> Optional[str]:
 
     for key, filename in brand_packaged_map.items():
         if key in norm:
-            logger.info(f"Standard brand/packaged image match for '{product_name}' -> '{filename}'")
+            logger.info(
+                f"Standard brand/packaged image match for '{product_name}' -> '{filename}'"
+            )
             return f"/storage/standard_images/{filename}"
 
     return None
@@ -118,10 +159,11 @@ def find_reusable_image(
     allowing us to reuse the crop on disk and save massive disk space.
     """
     from storage.database import get_storage
+
     storage = get_storage(db_path=db_path)
 
     # If using local SQLite and the DB file doesn't exist, search can't proceed
-    if hasattr(storage, 'db_path') and not os.path.exists(storage.db_path):
+    if hasattr(storage, "db_path") and not os.path.exists(storage.db_path):
         return None
 
     normalized_new = _normalize_string(product_name)
@@ -139,7 +181,9 @@ def find_reusable_image(
             name = r.get("name")
             image_url = r.get("image_url")
             if name == product_name and image_url:
-                logger.info(f"Fast exact raw match found for '{product_name}': reusing '{image_url}'")
+                logger.info(
+                    f"Fast exact raw match found for '{product_name}': reusing '{image_url}'"
+                )
                 return image_url
 
         best_match_url = None
@@ -156,11 +200,15 @@ def find_reusable_image(
 
             # Quick check if exact match after normalization
             if normalized_new == normalized_old:
-                logger.info(f"Exact semantic image match found for '{product_name}': reusing '{image_url}'")
+                logger.info(
+                    f"Exact semantic image match found for '{product_name}': reusing '{image_url}'"
+                )
                 return image_url
 
             # Fuzzy match ratio using standard library difflib (fast and zero-dependency)
-            ratio = difflib.SequenceMatcher(None, normalized_new, normalized_old).ratio()
+            ratio = difflib.SequenceMatcher(
+                None, normalized_new, normalized_old
+            ).ratio()
             if ratio > best_ratio:
                 best_ratio = ratio
                 best_match_url = image_url
@@ -177,8 +225,9 @@ def find_reusable_image(
     return None
 
 
-
-def post_process_image_background(pil_img: Image.Image, padding_percent: float = 0.03) -> Image.Image:
+def post_process_image_background(
+    pil_img: Image.Image, padding_percent: float = 0.03
+) -> Image.Image:
     """
     Cleans up cropped product card images by dynamically trimming flat solid backgrounds
     (like the white margins in paper circular flyers) so that the product visually stands out.
@@ -215,7 +264,7 @@ def post_process_image_background(pil_img: Image.Image, padding_percent: float =
             )
 
             logger.info(
-                f"Background auto-trimmer optimized bounding box from {w}x{h} to {crop_box[2]-crop_box[0]}x{crop_box[3]-crop_box[1]}"
+                f"Background auto-trimmer optimized bounding box from {w}x{h} to {crop_box[2] - crop_box[0]}x{crop_box[3] - crop_box[1]}"
             )
             return pil_img.crop(crop_box)
 
@@ -231,47 +280,46 @@ def draw_coordinate_grid(pil_img: Image.Image) -> Image.Image:
     with red numeric labels onto a copy of the image. Helps VLMs locate bounding boxes precisely.
     """
     from PIL import ImageDraw, ImageFont
-    
+
     # Work on a copy of the image so that the original remains clean for final cropping
     grid_img = pil_img.copy()
     w, h = grid_img.size
-    
+
     draw = ImageDraw.Draw(grid_img)
-    
+
     # 1. Draw light coordinate grid lines
     # We use a neutral light gray (200, 200, 200) so it doesn't obstruct visual text
     grid_color = (200, 200, 200)
-    
+
     for i in range(100, 1000, 100):
         # Vertical grid line at x = i (normalized to w)
         x = int((i / 1000.0) * w)
         draw.line([(x, 0), (x, h)], fill=grid_color, width=1)
-        
+
         # Horizontal grid line at y = i (normalized to h)
         y = int((i / 1000.0) * h)
         draw.line([(0, y), (w, y)], fill=grid_color, width=1)
-        
+
     # 2. Draw border numeric coordinates (Red text for maximum visibility to VLMs)
     try:
         font = ImageFont.load_default()
     except Exception:
         font = None
-        
+
     text_color = (255, 0, 0)
-    
+
     for i in range(100, 1000, 100):
         x = int((i / 1000.0) * w)
         y = int((i / 1000.0) * h)
-        
+
         # Top margin labels
         draw.text((x + 2, 2), str(i), fill=text_color, font=font)
         # Bottom margin labels
         draw.text((x + 2, h - 15), str(i), fill=text_color, font=font)
-        
+
         # Left margin labels
         draw.text((2, y + 2), str(i), fill=text_color, font=font)
         # Right margin labels
         draw.text((w - 25, y + 2), str(i), fill=text_color, font=font)
-        
-    return grid_img
 
+    return grid_img

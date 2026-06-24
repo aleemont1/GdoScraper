@@ -100,8 +100,12 @@ services:
 ```
 
 ### 2.3 Configurazione Ambiente (`.env`)
-Sempre nella stessa cartella, crea un file vuoto chiamato `.env` per configurare le chiavi API opzionali per l'audit AI (se lo desideri):
+Nel progetto è presente un file modello chiamato `.env.example` con le istruzioni dettagliate.
+Copia/rinomina questo file in `.env` e compila le variabili interne con le tue chiavi API (se desideri attivare le funzioni di Intelligenza Artificiale). 
+
+Se stai usando Docker senza aver clonato l'intero progetto, crea un file `.env` vicino al tuo `docker-compose.yml` e copiacci dentro questo scheletro:
 ```ini
+# API Key per i modelli AI (Opzionale)
 GEMINI_API_KEY="la_tua_chiave_gemini"
 ANTHROPIC_API_KEY="la_tua_chiave_claude"
 ```

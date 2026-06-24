@@ -108,6 +108,11 @@ Se stai usando Docker senza aver clonato l'intero progetto, crea un file `.env` 
 # API Key per i modelli AI (Opzionale)
 GEMINI_API_KEY="la_tua_chiave_gemini"
 ANTHROPIC_API_KEY="la_tua_chiave_claude"
+
+# Scelta del modello Claude (rimuovi il commento da quello desiderato)
+#CLAUDE_MODEL_NAME="claude-haiku-4-5"
+CLAUDE_MODEL_NAME="claude-sonnet-4-6"
+#CLAUDE_MODEL_NAME="claude-opus-4-8"
 ```
 
 ### 2.4 Comandi di Avvio

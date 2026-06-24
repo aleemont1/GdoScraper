@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  dashboard:
+    build: .
+    container_name: gdo_scraper_dashboard
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python dashboard.py
+    restart: unless-stopped
+
+  scraper:
+    build: .
+    container_name: gdo_scraper_cli
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: python main.py --supermarket coop
+    profiles:
+      - cli
+
+  tui:
+    build: .
+    container_name: gdo_scraper_tui
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: python run_interactive.py
+    profiles:
+      - cli

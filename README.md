@@ -42,27 +42,40 @@ ConadSupermarketDriver   INSSupermarketDriver  CoopSupermarketDriver  DpiuSuperm
 
 ## 2. Installazione tramite Docker (Metodo Consigliato)
 
-Per garantire un'installazione riproducibile, senza conflitti e funzionante su qualsiasi computer, consigliamo caldamente di utilizzare **Docker**. In questo modo non dovrai installare Python o gestire dipendenze di sistema complesse come Tesseract o librerie PDF.
+Per garantire un'installazione riproducibile, senza conflitti e funzionante su qualsiasi computer, consigliamo caldamente di utilizzare **Docker**. In questo modo non dovrai installare Python o gestire dipendenze di sistema. Non è necessario scaricare il codice sorgente!
 
-### 2.1 Requisiti Preliminari
+### 2.1 Prerequisiti
+- Scarica e installa **Docker Desktop** (per [Windows](https://docs.docker.com/desktop/setup/install/windows-install/), [macOS](https://docs.docker.com/desktop/setup/install/mac-install/) o [Linux](https://docs.docker.com/desktop/setup/install/linux/)).
+- **(Opzionale ma consigliato)**: Crea un account su [Docker Hub](https://hub.docker.com/) e fai il login.
 
-1. **Installa Docker e Docker Desktop** in base al tuo sistema operativo:
-   - [Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
-   - [macOS](https://docs.docker.com/desktop/setup/install/mac-install/)
-   - [Linux](https://docs.docker.com/desktop/setup/install/linux/) (o semplicemente il motore Docker tramite le [istruzioni ufficiali](https://docs.docker.com/engine/install/))
-2. **Crea un account gratuito su Docker Hub**: Registrati su [hub.docker.com](https://hub.docker.com/).
-3. **Fai il login dal terminale**: Apri un terminale (o il prompt dei comandi) ed esegui il login con le tue credenziali:
-   ```bash
-   docker login
-   ```
+---
 
-### 2.2 Avvio Rapido dell'Applicazione
+### Metodo A: Utilizzo tramite Docker Desktop (Interfaccia Grafica)
+Se preferisci usare il mouse e non vuoi aprire il terminale:
 
-Non è necessario clonare l'intero codice sorgente! Ti basterà creare una cartella vuota sul tuo computer e, al suo interno, creare un file chiamato `docker-compose.yml` copiandoci questo contenuto:
+1. Apri **Docker Desktop**.
+2. Nella barra di ricerca in alto digita `aleemont/supermarket-scraper:latest` e clicca su **Pull** per scaricare l'immagine.
+3. Vai nella scheda **Images** a sinistra, trova l'immagine e clicca il pulsante azzurro **"▶ Run"**.
+4. Espandi la sezione **"Optional settings"** e compila i campi:
+   - **Container name:** Scegli un nome (es. `gdo-scraper`).
+   - **Ports:** Scrivi `8000` sotto la colonna "Host port".
+   - **Volumes:** Sotto "Host path" seleziona una cartella vuota dal tuo PC (es. una cartella `storage` sul Desktop). Sotto "Container path" scrivi `/app/storage`.
+   - **Environment variables:** Clicca sul `+` per aggiungere:
+     - `GEMINI_API_KEY` = *inserisci_la_tua_chiave* (facoltativo, per le AI)
+     - `ANTHROPIC_API_KEY` = *inserisci_la_tua_chiave_claude* (facoltativo, per le AI)
+     - `PYTHONUNBUFFERED` = `1` (fondamentale per vedere i log in diretta)
+5. Clicca **Run**.
+6. Spostati nella scheda **Containers** e clicca sul link `8000:8000` per aprire la dashboard sul tuo browser!
+
+---
+
+### Metodo B: Utilizzo tramite Docker CLI (Riga di comando / docker-compose)
+Se preferisci il terminale o vuoi un avvio riproducibile con un solo comando:
+
+1. Crea una cartella vuota sul tuo computer (es. `gdo-scraper`).
+2. Crea un file chiamato `docker-compose.yml` e incollaci questo contenuto:
 
 ```yaml
-version: '3.8'
-
 services:
   dashboard:
     image: aleemont/supermarket-scraper:latest
@@ -99,46 +112,23 @@ services:
       - cli
 ```
 
-### 2.3 Configurazione Ambiente (`.env`)
-Nel progetto è presente un file modello chiamato `.env.example` con le istruzioni dettagliate.
-Copia/rinomina questo file in `.env` e compila le variabili interne con le tue chiavi API (se desideri attivare le funzioni di Intelligenza Artificiale). 
-
-Se stai usando Docker senza aver clonato l'intero progetto, crea un file `.env` vicino al tuo `docker-compose.yml` e copiacci dentro questo scheletro:
+3. Crea un file testuale chiamato `.env` accanto al file precedente e inserisci le tue chiavi API:
 ```ini
-# API Key per i modelli AI (Opzionale)
 GEMINI_API_KEY="la_tua_chiave_gemini"
 ANTHROPIC_API_KEY="la_tua_chiave_claude"
-
-# Scelta del modello Claude (rimuovi il commento da quello desiderato)
-#CLAUDE_MODEL_NAME="claude-haiku-4-5"
 CLAUDE_MODEL_NAME="claude-sonnet-4-6"
-#CLAUDE_MODEL_NAME="claude-opus-4-8"
+PYTHONUNBUFFERED=1
 ```
 
-### 2.4 Comandi di Avvio
+4. Dal terminale, esegui i comandi desiderati:
+   - **Avvia la Dashboard**: `docker-compose up -d` (poi vai su http://localhost:8000)
+   - **Avvia la TUI Interattiva**: `docker-compose run --rm tui`
+   - **Avvia Scraper CLI**: `docker-compose run --rm scraper python main.py --supermarket coop --store-id 0315`
 
-Una volta posizionato col terminale all'interno della cartella dove hai salvato i due file, puoi lanciare il progetto a piacimento:
+---
 
-* **Avvia la Dashboard Web in background**: 
-  ```bash
-  docker-compose up -d
-  ```
-  La dashboard sarà visibile dal tuo browser all'indirizzo [http://localhost:8000](http://localhost:8000).
-
-* **Avvia l'Interfaccia Testuale Interattiva (TUI)**:
-  ```bash
-  docker-compose run --rm tui
-  ```
-
-* **Esegui uno scraping manuale da riga di comando (CLI)**:
-  ```bash
-  docker-compose run --rm scraper python main.py --supermarket coop --store-id 0315
-  ```
-
-Tutti i dati processati, il database locale SQLite (`promotions.db`) e le immagini dei prodotti verranno salvati in modo permanente all'interno di una cartella `storage/` creata in automatico sul tuo computer.
-
-> **Sei uno sviluppatore e vuoi lavorare sul codice sorgente in locale?**  
-> Consulta la [Guida all'Installazione Avanzata (Sorgente)](docs/installation.md) per istruzioni su Linux, macOS o Windows (tramite WSL) usando Git e `uv`.
+> **Installazione Manuale / Per Sviluppatori**  
+> Se vuoi clonare il repository e lavorare direttamente sul codice Python, consulta la [Guida all'Installazione Avanzata](docs/installation.md).
 
 ---
 

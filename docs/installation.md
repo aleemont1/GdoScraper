@@ -1,88 +1,103 @@
 # Guida all'Installazione
 
-Questa guida spiega come installare il **GDO Supermarket Scraper** su Windows (tramite WSL), Linux e macOS, descrivendo i requisiti di sistema ed i passaggi di configurazione.
+Questa guida ti accompagna nell'installazione del **GDO Supermarket Scraper**. 
+Il metodo **fortemente consigliato** ed ufficiale è tramite **Docker**, che garantisce un ambiente pulito e ti evita di dover configurare Python, dipendenze grafiche o motori OCR complessi (come Tesseract) sul tuo sistema.
+
+Se sei uno sviluppatore e desideri contribuire al codice sorgente, troverai le istruzioni per l'installazione manuale in fondo a questa pagina.
 
 ---
 
-## 1. Requisiti di Sistema
+## 1. Installazione tramite Docker Desktop (Interfaccia Grafica)
 
-Prima di procedere con l'installazione, assicurati di avere i seguenti componenti installati sul tuo sistema:
+Se preferisci usare il mouse e non vuoi toccare il terminale, questo è il metodo più rapido.
 
-### A. Git (Obbligatorio)
-È necessario avere **Git** installato per clonare il repository.
-* **Linux / WSL**: `sudo apt install git`
-* **macOS**: `brew install git`
-
-> [!IMPORTANT]
-> Il repository è privato (`github.com/aleemont1/gdoscraper`). Per poterlo clonare è necessario generare un **Personal Access Token (PAT)** di GitHub con i permessi di lettura per i repository privati (`repo` o `contents:read`).
-
-### B. Python 3.10+
-Il codice è ottimizzato e testato per le versioni recenti di Python (consigliato **Python 3.11** o superiore).
-* **Linux / WSL / macOS**: Installa tramite il gestore di pacchetti di sistema.
-
-### C. Tesseract OCR (Opzionale, richiesto per fallback OCR/IN'S)
-Il driver per **IN'S Mercato** ed i meccanismi di fallback OCR offline utilizzano Tesseract per estrarre testi dalle immagini dei volantini.
-* **Linux / WSL (Ubuntu/Debian)**:
-  ```bash
-  sudo apt update
-  sudo apt install -y tesseract-ocr tesseract-ocr-ita
-  ```
-* **macOS (via Homebrew)**:
-  ```bash
-  brew install tesseract tesseract-lang
-  ```
-
-### D. Gestore di pacchetti `uv` (Consigliato)
-Il progetto utilizza **`uv`**, un gestore di pacchetti Python estremamente rapido sviluppato da Astral.
-* **Linux / WSL / macOS**:
-  ```bash
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  ```
+1. **Installa Docker Desktop** in base al tuo sistema operativo: [Windows](https://docs.docker.com/desktop/setup/install/windows-install/) | [macOS](https://docs.docker.com/desktop/setup/install/mac-install/) | [Linux](https://docs.docker.com/desktop/setup/install/linux/)
+2. Apri Docker Desktop.
+3. Nella barra di ricerca in alto, digita `aleemont/supermarket-scraper:latest` e clicca su **Pull** per scaricare l'immagine.
+4. Vai nella scheda **Images** a sinistra, trova l'immagine appena scaricata e clicca il pulsante **"▶ Run"**.
+5. Nella finestra che si apre, espandi la sezione **"Optional settings"** e compila:
+   - **Container name:** `gdo-scraper` (o un nome a piacere).
+   - **Ports:** scrivi `8000` sotto "Host port" (in corrispondenza di 8000/tcp).
+   - **Volumes:** seleziona una cartella vuota dal tuo PC (es. una cartella `storage` sul Desktop) sotto "Host path", e scrivi ESATTAMENTE `/app/storage` sotto "Container path".
+   - **Environment variables:** clicca il `+` per aggiungere:
+     - `GEMINI_API_KEY` = *inserisci_la_tua_chiave* (facoltativo, per l'AI)
+     - `ANTHROPIC_API_KEY` = *inserisci_la_tua_chiave* (facoltativo, per l'AI)
+     - `PYTHONUNBUFFERED` = `1` (necessario per visualizzare correttamente i log)
+6. Clicca **Run**.
+7. Apri il browser all'indirizzo [http://localhost:8000](http://localhost:8000) e usa l'app!
 
 ---
 
-## 2. Passaggi per l'Installazione
+## 2. Installazione tramite Docker CLI (Riga di Comando)
 
-### A. Windows (Tramite WSL - Unica modalità supportata)
+Se ami il terminale o vuoi automatizzare il processo, usa `docker-compose`.
 
-Per gli utenti Windows, **l'utilizzo di WSL (Windows Subsystem for Linux) è l'unica modalità di installazione supportata**. L'ambiente Linux WSL garantisce stabilità e facilità di installazione delle dipendenze grafiche e di Tesseract OCR.
+1. Crea una cartella vuota sul tuo PC ed entraci con il terminale.
+2. Crea un file chiamato `docker-compose.yml` e incollaci questo contenuto:
+```yaml
+services:
+  dashboard:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_dashboard
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    restart: unless-stopped
 
-1. **Installa WSL** (se non presente) aprendo PowerShell come amministratore ed eseguendo:
-   ```powershell
-   wsl --install
-   ```
-   *Nota: Di default verrà installata la distribuzione Ubuntu. Riavvia il computer se richiesto.*
+  scraper:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_cli
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    profiles:
+      - cli
 
-2. **Apri la shell di WSL (Ubuntu)** ed installa i requisiti di sistema:
-   ```bash
-   sudo apt update
-   sudo apt install -y python3 python3-pip python3-venv git tesseract-ocr tesseract-ocr-ita curl
-   ```
-
-3. **Installa il gestore di pacchetti `uv`** all'interno di WSL:
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   source $HOME/.local/bin/env
-   ```
-
-4. **Clona la repository** (sostituisci `<IL_TUO_GITHUB_TOKEN>` con il tuo token PAT generato):
-   ```bash
-   git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
-   cd gdoscraper
-   ```
-
-5. **Configura l'ambiente virtuale ed installa le dipendenze**:
-   ```bash
-   uv venv
-   source .venv/bin/activate
-   uv sync
-   ```
+  tui:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_tui
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    stdin_open: true
+    tty: true
+    command: python run_interactive.py
+    profiles:
+      - cli
+```
+3. Crea un file `.env` accanto al `docker-compose.yml` e compila le variabili:
+```ini
+GEMINI_API_KEY="la_tua_chiave_gemini"
+ANTHROPIC_API_KEY="la_tua_chiave_claude"
+CLAUDE_MODEL_NAME="claude-sonnet-4-6"
+PYTHONUNBUFFERED=1
+```
+4. **Avvia la Dashboard**: esegui `docker-compose up -d`. Visita http://localhost:8000.
+5. **Avvia la TUI Interattiva**: esegui `docker-compose run --rm tui`.
 
 ---
 
-### B. Linux / macOS (Nativo)
+## 3. Installazione Manuale / Sviluppatori (Sorgente)
 
-1. **Clona il repository** utilizzando il proprio GitHub Token PAT per l'autenticazione:
+L'installazione nativa/manuale è consigliata **solo** se vuoi modificare il codice sorgente del progetto.
+*Per gli utenti Windows, l'utilizzo di WSL (Windows Subsystem for Linux) è l'unica modalità di installazione manuale supportata.*
+
+### Prerequisiti
+* **Git** per clonare il repository. (Richiede un Personal Access Token GitHub poiché il repo è privato).
+* **Python 3.10+**.
+* **Tesseract OCR** (facoltativo, per i fallback di OCR di alcuni volantini).
+  - Ubuntu/WSL: `sudo apt install tesseract-ocr tesseract-ocr-ita`
+  - macOS: `brew install tesseract tesseract-lang`
+* **uv**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+### Installazione
+
+1. **Clona la repository**:
    ```bash
    git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
    cd gdoscraper
@@ -95,31 +110,13 @@ Per gli utenti Windows, **l'utilizzo di WSL (Windows Subsystem for Linux) è l'u
    uv sync
    ```
 
----
-
-## 3. Configurazione delle Variabili d'Ambiente
-
-Il sistema supporta l'integrazione con modelli di intelligenza artificiale per l'audit visivo ed il fallback OCR (Gemini e Claude). Per configurare le chiavi API:
-
-1. Crea un file nominato `.env` nella radice del progetto.
-2. Aggiungi le seguenti chiavi:
-   ```ini
-   # API Keys per gli Audit ed i Fallback OCR (Facoltativo)
-   GEMINI_API_KEY="la_tua_gemini_api_key_qui"
-   ANTHROPIC_API_KEY="la_tua_anthropic_api_key_qui"
+3. **Copia il file delle variabili d'ambiente**:
+   ```bash
+   cp .env.example .env
+   # Modifica il .env con le tue chiavi API
    ```
 
----
-
-## 4. Verifica dell'Installazione
-
-Per verificare che l'installazione sia andata a buon fine ed eseguire la suite di test unitari:
-
-```bash
-# Attiva l'ambiente virtuale se non è già attivo
-source .venv/bin/activate
-
-# Esegui i test unitari
-pytest
-```
-Se tutti i test passano, il sistema è pronto per essere utilizzato!
+4. **Avvia l'applicazione**:
+   - Dashboard: `uv run python dashboard.py`
+   - TUI: `uv run python run_interactive.py`
+   - Test unitari: `uv run pytest`

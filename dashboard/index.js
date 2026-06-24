@@ -33,6 +33,7 @@ const translations = {
         search_input_placeholder: "Cerca nome prodotto, brand o codice a barre...",
         btn_db_stats: "Statistiche",
         btn_refresh_registers: "Aggiorna Registro",
+        btn_add_record: "+ Nuova Offerta",
         btn_reset_sort: "Ripristina Ordine",
         verification_engine_label: "MOTORE DI VERIFICA: ATTIVO",
         th_chain: "Catena",
@@ -151,6 +152,7 @@ const translations = {
         search_input_placeholder: "Type product name, brand, or barcode...",
         btn_db_stats: "Stats",
         btn_refresh_registers: "Refresh Registers",
+        btn_add_record: "+ New Offer",
         btn_reset_sort: "Reset Order",
         verification_engine_label: "VERIFICATION ENGINE: ACTIVE",
         th_chain: "Chain",
@@ -1630,7 +1632,7 @@ async function addNewRecord() {
         }
     } catch (err) {
         console.error("Failed to add new record:", err);
-        alert(`Errore: ${err.message}`);
+        showAlert(`Errore: ${err.message}`, "error");
     }
 }
 
@@ -1657,15 +1659,15 @@ async function clearDatabase() {
 
         const data = await res.json();
         if (data.success) {
-            alert("Database svuotato con successo!");
+            showAlert("Database svuotato con successo!", "success");
             if (document.getElementById('view-audit').classList.contains('active')) {
                 loadOffers();
             }
         } else {
-            alert("Errore sconosciuto durante lo svuotamento.");
+            showAlert("Errore sconosciuto durante lo svuotamento.", "error");
         }
     } catch (err) {
         console.error("Failed to clear db:", err);
-        alert(`Errore: ${err.message}`);
+        showAlert(`Errore: ${err.message}`, "error");
     }
 }

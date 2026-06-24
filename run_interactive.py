@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import os
-import sys
-import time
 import shutil
 import subprocess
+import sys
+import time
 
 # Load local environment variables if .env file exists
 if os.path.exists(".env"):
@@ -52,10 +52,6 @@ RESET = "\033[0m"
 def print_banner():
     """Prints the GDO Supermarket Scraper CLI banner."""
     banner = rf"""
-{BLUE}{BOLD}   _   _  _ _____ ___   ___ ___  _____     _____ ___ 
-  /_\ | \| |_   _|_ _| / __| _ \/ _ \ \   / / __| _ \\
- / _ \| .` | | |  | | | (_ |   / (_) \ \_/ /| _||   /
-/_/ \_\_|\_| |_| |___| \___|_|_\\___/ \___/ |___|_|_\\
 {CYAN}        -- GDO Supermarket Scraper: Interactive Control CLI --{RESET}
     """
     print(banner)

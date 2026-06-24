@@ -1627,7 +1627,7 @@ async function addNewRecord() {
             
             // Automatically enter edit mode for the newly created offer
             setTimeout(() => {
-                editOffer(data.offer.supermarket, data.offer.store_id, data.offer.offer_id);
+                startEdit(data.offer.supermarket, data.offer.store_id, data.offer.offer_id);
             }, 500); // Wait for the table to render
         }
     } catch (err) {

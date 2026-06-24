@@ -11,7 +11,7 @@ import sys
 import os
 from typing import List, Any, Callable
 from utils.logger import setup_logger
-from storage.database import initialize_db, save_offers
+from db_engine.database import initialize_db, save_offers
 from drivers.coop.coop_driver import CoopSupermarketDriver
 from drivers.conad.conad_driver import ConadSupermarketDriver
 from drivers.ins.ins_driver import INSSupermarketDriver

@@ -158,7 +158,7 @@ def find_reusable_image(
     within the same supermarket chain. If a match is found, returns its existing image URL,
     allowing us to reuse the crop on disk and save massive disk space.
     """
-    from storage.database import get_storage
+    from db_engine.database import get_storage
 
     storage = get_storage(db_path=db_path)
 

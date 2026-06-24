@@ -13,7 +13,7 @@ from typing import Optional
 
 from core.models import ProductOffer
 from core.base_driver import AbstractOfferParser
-from storage.database import initialize_db, save_offers
+from db_engine.database import initialize_db, save_offers
 from utils.image_manager import get_standard_image, find_reusable_image
 
 
@@ -338,7 +338,7 @@ def test_database_image_update(temp_db_path):
 
 def test_get_storage_factory(monkeypatch):
     """Verifies storage engine factory returns correct implementation based on environment."""
-    from storage.database import get_storage, SQLiteStorage, SupabaseStorage
+    from db_engine.database import get_storage, SQLiteStorage, SupabaseStorage
 
     # SQLite default
     monkeypatch.delenv("DB_ENGINE", raising=False)
@@ -360,7 +360,7 @@ def test_get_storage_factory(monkeypatch):
 
 def test_supabase_storage_operations_mocked(monkeypatch):
     """Verifies Supabase REST API requests are formatted correctly."""
-    from storage.database import SupabaseStorage
+    from db_engine.database import SupabaseStorage
     from unittest.mock import MagicMock
 
     monkeypatch.setenv("SUPABASE_URL", "https://xyz.supabase.co")

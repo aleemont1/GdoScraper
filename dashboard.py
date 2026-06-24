@@ -117,7 +117,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             try:
-                from storage.database import get_storage
+                from db_engine.database import get_storage
 
                 storage = get_storage(DB_PATH)
                 response_data = storage.get_offers()
@@ -142,7 +142,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 return
 
             try:
-                from storage.database import get_storage
+                from db_engine.database import get_storage
 
                 storage = get_storage(DB_PATH)
                 breakdown = storage.get_stats()
@@ -538,7 +538,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                     f.write(pdf_content)
 
                 from drivers.manual.manual_driver import ManualSupermarketDriver
-                from storage.database import save_offers
+                from db_engine.database import save_offers
 
                 driver = ManualSupermarketDriver(
                     supermarket_name=supermarket, store_id=store_id, engine=engine
@@ -756,7 +756,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                     )
                     return
 
-                from storage.database import get_storage
+                from db_engine.database import get_storage
 
                 storage = get_storage(DB_PATH)
                 fields = {
@@ -813,7 +813,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                     )
                     return
 
-                from storage.database import get_storage
+                from db_engine.database import get_storage
 
                 storage = get_storage(DB_PATH)
                 success = storage.delete_offer(supermarket, store_id, offer_id)
@@ -932,7 +932,7 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
                 # Update database
                 db_image_url = f"/storage/images/{new_filename}"
-                from storage.database import get_storage
+                from db_engine.database import get_storage
 
                 storage = get_storage(DB_PATH)
                 success = storage.update_offer(
@@ -975,7 +975,7 @@ def run_server() -> None:
     socketserver.ThreadingTCPServer.allow_reuse_address = True
 
     # Initialize database schema dynamically at startup
-    from storage.database import initialize_db
+    from db_engine.database import initialize_db
 
     try:
         initialize_db(DB_PATH)

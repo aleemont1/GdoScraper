@@ -415,7 +415,7 @@ def display_db_stats():
     """Queries and displays analytics from the active database storage engine."""
     print(f"\n{GREEN}{BOLD}=== DATABASE ANALYTICS ==={RESET}")
 
-    from storage.database import get_storage
+    from db_engine.database import get_storage
 
     storage = get_storage()
     engine = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
@@ -510,7 +510,7 @@ def dev_tools_menu():
         choice = input("Select developer option [1-8]: ").strip()
 
         if choice == "1":
-            from storage.database import get_storage
+            from db_engine.database import get_storage
 
             storage = get_storage()
             engine = os.environ.get("DB_ENGINE", "sqlite").lower().strip()
@@ -567,7 +567,7 @@ def dev_tools_menu():
                 .lower()
             )
             if confirm == "y":
-                from storage.database import get_storage
+                from db_engine.database import get_storage
 
                 storage = get_storage()
                 engine = os.environ.get("DB_ENGINE", "sqlite").lower().strip()

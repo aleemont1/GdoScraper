@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  dashboard:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_dashboard
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+  scraper:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_cli
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    profiles:
+      - cli
+
+  tui:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_tui
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true
+    tty: true
+    command: python run_interactive.py
+    profiles:
+      - cli

@@ -40,69 +40,96 @@ ConadSupermarketDriver   INSSupermarketDriver  CoopSupermarketDriver  DpiuSuperm
 
 ---
 
-## 2. Requisiti e Installazione
+## 2. Installazione tramite Docker (Metodo Consigliato)
 
-Il progetto richiede **Git** per il controllo versione, **Python 3.10+** ed utilizza **`uv`** come gestore di pacchetti per garantire la riproducibilità ultra-rapida delle dipendenze.
+Per garantire un'installazione riproducibile, senza conflitti e funzionante su qualsiasi computer, consigliamo caldamente di utilizzare **Docker**. In questo modo non dovrai installare Python o gestire dipendenze di sistema complesse come Tesseract o librerie PDF.
 
-> [!IMPORTANT]
-> Il repository è privato (`github.com/aleemont1/gdoscraper`). Per poterlo clonare è necessario generare un **Personal Access Token (PAT)** di GitHub con i permessi di lettura per i repository privati (`repo` o `contents:read`) ed utilizzarlo nell'URL di clonazione:
-> `git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git`
+### 2.1 Requisiti Preliminari
 
-Per consultare la guida dettagliata all'installazione con la configurazione di Tesseract OCR, visita la [Guida all'Installazione](docs/installation.md).
+1. **Installa Docker e Docker Desktop** in base al tuo sistema operativo:
+   - [Windows](https://docs.docker.com/desktop/setup/install/windows-install/)
+   - [macOS](https://docs.docker.com/desktop/setup/install/mac-install/)
+   - [Linux](https://docs.docker.com/desktop/setup/install/linux/) (o semplicemente il motore Docker tramite le [istruzioni ufficiali](https://docs.docker.com/engine/install/))
+2. **Crea un account gratuito su Docker Hub**: Registrati su [hub.docker.com](https://hub.docker.com/).
+3. **Fai il login dal terminale**: Apri un terminale (o il prompt dei comandi) ed esegui il login con le tue credenziali:
+   ```bash
+   docker login
+   ```
 
-### Installazione su Linux / macOS
-Esegui questi comandi nel terminale:
-```bash
-# Installa uv (se non presente)
-curl -LsSf https://astral.sh/uv/install.sh | sh
+### 2.2 Avvio Rapido dell'Applicazione
 
-# Clona e configura
-git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
-cd gdoscraper
-uv venv
-source .venv/bin/activate
-uv sync
+Non è necessario clonare l'intero codice sorgente! Ti basterà creare una cartella vuota sul tuo computer e, al suo interno, creare un file chiamato `docker-compose.yml` copiandoci questo contenuto:
+
+```yaml
+version: '3.8'
+
+services:
+  dashboard:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_dashboard
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  scraper:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_cli
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    profiles:
+      - cli
+
+  tui:
+    image: aleemont/supermarket-scraper:latest
+    container_name: gdo_scraper_tui
+    volumes:
+      - ./storage:/app/storage
+    env_file:
+      - .env
+    stdin_open: true
+    tty: true
+    command: python run_interactive.py
+    profiles:
+      - cli
 ```
 
-### Installazione su Windows (Consigliato tramite WSL)
-Per evitare problemi legati alle dipendenze native di Windows, **si raccomanda caldamente l'utilizzo di WSL (Windows Subsystem for Linux)**.
-
-Esegui questi comandi nella shell di WSL (Ubuntu):
-```bash
-# Aggiorna ed installa i requisiti di sistema
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv git tesseract-ocr tesseract-ocr-ita curl
-
-# Installa uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env
-
-# Clona e configura
-git clone https://<IL_TUO_GITHUB_TOKEN>@github.com/aleemont1/gdoscraper.git
-cd gdoscraper
-uv venv
-source .venv/bin/activate
-uv sync
-```
-
-
-### Configurazione Ambiente (`.env`)
-Crea un file `.env` nella root del progetto per configurare le chiavi API opzionali per l'audit AI:
+### 2.3 Configurazione Ambiente (`.env`)
+Sempre nella stessa cartella, crea un file vuoto chiamato `.env` per configurare le chiavi API opzionali per l'audit AI (se lo desideri):
 ```ini
 GEMINI_API_KEY="la_tua_chiave_gemini"
 ANTHROPIC_API_KEY="la_tua_chiave_claude"
-
-#CLAUDE_MODEL_NAME="claude-haiku-4-5"
-CLAUDE_MODEL_NAME="claude-sonnet-4-6"
-#CLAUDE_MODEL_NAME="claude-opus-4-8"
-
-# # Storage Engine Selection (choose sqlite for local DB OR supabase)
-DB_ENGINE=sqlite
-# DB_ENGINE=supabase
-# # Supabase Credentials
-# SUPABASE_URL="https://your-project-id.supabase.co"
-# SUPABASE_KEY="la_tua_chiave_supabase"
 ```
+
+### 2.4 Comandi di Avvio
+
+Una volta posizionato col terminale all'interno della cartella dove hai salvato i due file, puoi lanciare il progetto a piacimento:
+
+* **Avvia la Dashboard Web in background**: 
+  ```bash
+  docker-compose up -d
+  ```
+  La dashboard sarà visibile dal tuo browser all'indirizzo [http://localhost:8000](http://localhost:8000).
+
+* **Avvia l'Interfaccia Testuale Interattiva (TUI)**:
+  ```bash
+  docker-compose run --rm tui
+  ```
+
+* **Esegui uno scraping manuale da riga di comando (CLI)**:
+  ```bash
+  docker-compose run --rm scraper python main.py --supermarket coop --store-id 0315
+  ```
+
+Tutti i dati processati, il database locale SQLite (`promotions.db`) e le immagini dei prodotti verranno salvati in modo permanente all'interno di una cartella `storage/` creata in automatico sul tuo computer.
+
+> **Sei uno sviluppatore e vuoi lavorare sul codice sorgente in locale?**  
+> Consulta la [Guida all'Installazione Avanzata (Sorgente)](docs/installation.md) per istruzioni su Linux, macOS o Windows (tramite WSL) usando Git e `uv`.
 
 ---
 

@@ -1594,3 +1594,39 @@ function showConfirm(message) {
         btnCancel.onclick = () => cleanup(false);
     });
 }
+
+// Danger Zone: Clear entire database
+async function clearDatabase() {
+    if (!await showConfirm("Sei VERAMENTE sicuro di voler ELIMINARE TUTTO il database? Questa azione NON può essere annullata!")) {
+        return;
+    }
+    
+    // Double confirmation for extreme safety
+    if (!await showConfirm("CONFERMA FINALE: Questo cancellerà tutte le offerte salvate in memoria. Procedere?")) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/db/clear', {
+            method: 'POST'
+        });
+
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.success) {
+            alert("Database svuotato con successo!");
+            if (document.getElementById('view-audit').classList.contains('active')) {
+                loadOffers();
+            }
+        } else {
+            alert("Errore sconosciuto durante lo svuotamento.");
+        }
+    } catch (err) {
+        console.error("Failed to clear db:", err);
+        alert(`Errore: ${err.message}`);
+    }
+}

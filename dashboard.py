@@ -836,6 +836,27 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 )
             return
 
+        # 4b. Route: Completely clear the database (Danger Zone)
+        elif self.path == "/api/db/clear":
+            try:
+                from db_engine.database import get_storage
+
+                storage = get_storage(DB_PATH)
+                success = storage.clear_all()
+
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": success}).encode("utf-8"))
+
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
+            return
+
         # 5. Route: Change product image in the database
         elif self.path == "/api/offers/change-image":
             content_type = self.headers.get("Content-Type")

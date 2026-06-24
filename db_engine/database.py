@@ -8,6 +8,7 @@ from utils.logger import setup_logger
 
 logger = setup_logger("DatabaseEngine")
 
+
 class BaseStorage(ABC):
     """Abstract base class defining the database storage interface."""
 
@@ -32,7 +33,9 @@ class BaseStorage(ABC):
         pass
 
     @abstractmethod
-    def update_offer(self, supermarket: str, store_id: str, offer_id: str, fields: Dict[str, Any]) -> bool:
+    def update_offer(
+        self, supermarket: str, store_id: str, offer_id: str, fields: Dict[str, Any]
+    ) -> bool:
         """Updates specific columns of a single offer targeted by compound key."""
         pass
 
@@ -62,7 +65,7 @@ class SQLiteStorage(BaseStorage):
         dir_name = os.path.dirname(self.db_path)
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
-            
+
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         cursor = conn.cursor()
         try:
@@ -88,8 +91,12 @@ class SQLiteStorage(BaseStorage):
                     PRIMARY KEY (supermarket, store_id, offer_id)
                 );
             """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_promotions_ean ON promotions(ean_code);")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_promotions_lookup ON promotions(supermarket, store_id);")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_promotions_ean ON promotions(ean_code);"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_promotions_lookup ON promotions(supermarket, store_id);"
+            )
             conn.commit()
             logger.info(f"SQLite database initialized at: {self.db_path}")
         except sqlite3.Error as e:
@@ -128,9 +135,21 @@ class SQLiteStorage(BaseStorage):
         try:
             param_list = [
                 (
-                    o.supermarket, o.store_id, o.offer_id, o.name, o.brand, o.weight_or_volume,
-                    o.price, o.original_price, o.discount_percentage, o.price_per_unit,
-                    o.ean_code, o.image_url, o.category, o.promo_type, o.validity_string
+                    o.supermarket,
+                    o.store_id,
+                    o.offer_id,
+                    o.name,
+                    o.brand,
+                    o.weight_or_volume,
+                    o.price,
+                    o.original_price,
+                    o.discount_percentage,
+                    o.price_per_unit,
+                    o.ean_code,
+                    o.image_url,
+                    o.category,
+                    o.promo_type,
+                    o.validity_string,
                 )
                 for o in offers
             ]
@@ -184,23 +203,25 @@ class SQLiteStorage(BaseStorage):
         finally:
             conn.close()
 
-    def update_offer(self, supermarket: str, store_id: str, offer_id: str, fields: Dict[str, Any]) -> bool:
+    def update_offer(
+        self, supermarket: str, store_id: str, offer_id: str, fields: Dict[str, Any]
+    ) -> bool:
         if not fields:
             return False
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         cursor = conn.cursor()
-        
+
         # Build update query dynamically
         set_clauses = []
         params = []
         for key, val in fields.items():
             set_clauses.append(f"{key} = ?")
             params.append(val)
-        
+
         set_clauses.append("extracted_at = CURRENT_TIMESTAMP")
         query = f"UPDATE promotions SET {', '.join(set_clauses)} WHERE supermarket = ? AND store_id = ? AND offer_id = ?;"
         params.extend([supermarket, store_id, offer_id])
-        
+
         try:
             cursor.execute(query, params)
             conn.commit()
@@ -216,7 +237,10 @@ class SQLiteStorage(BaseStorage):
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         cursor = conn.cursor()
         try:
-            cursor.execute("DELETE FROM promotions WHERE supermarket = ? AND store_id = ? AND offer_id = ?;", (supermarket, store_id, offer_id))
+            cursor.execute(
+                "DELETE FROM promotions WHERE supermarket = ? AND store_id = ? AND offer_id = ?;",
+                (supermarket, store_id, offer_id),
+            )
             conn.commit()
             return True
         except sqlite3.Error as e:
@@ -231,14 +255,17 @@ class SQLiteStorage(BaseStorage):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         try:
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT image_url, name 
                 FROM promotions 
                 WHERE supermarket = ? 
                   AND image_url IS NOT NULL 
                   AND image_url != '' 
                   AND image_url NOT LIKE '%standard_images%';
-            """, (supermarket,))
+            """,
+                (supermarket,),
+            )
             return [dict(r) for r in cursor.fetchall()]
         except sqlite3.Error as e:
             logger.error(f"SQLite query error: {e}")
@@ -271,16 +298,24 @@ class SupabaseStorage(BaseStorage):
             "apikey": self.key,
             "Authorization": f"Bearer {self.key}",
             "Content-Type": "application/json",
-            "Prefer": "return=representation"
+            "Prefer": "return=representation",
         }
 
     def initialize(self) -> None:
         if not self.url or not self.key:
-            raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables must be set for Supabase storage engine.")
+            raise ValueError(
+                "SUPABASE_URL and SUPABASE_KEY environment variables must be set for Supabase storage engine."
+            )
         try:
-            res = requests.get(f"{self.url}/rest/v1/promotions?limit=1", headers=self.headers, timeout=10)
+            res = requests.get(
+                f"{self.url}/rest/v1/promotions?limit=1",
+                headers=self.headers,
+                timeout=10,
+            )
             if res.status_code not in (200, 201, 404):
-                logger.warning(f"Supabase connection test returned status code {res.status_code}. Details: {res.text}")
+                logger.warning(
+                    f"Supabase connection test returned status code {res.status_code}. Details: {res.text}"
+                )
             else:
                 logger.info("Supabase storage engine initialized successfully.")
         except Exception as e:
@@ -290,34 +325,43 @@ class SupabaseStorage(BaseStorage):
     def save_offers(self, offers: List[ProductOffer]) -> int:
         if not offers:
             return 0
-        
+
         payload = []
         for o in offers:
-            payload.append({
-                "supermarket": o.supermarket,
-                "store_id": o.store_id,
-                "offer_id": o.offer_id,
-                "name": o.name,
-                "brand": o.brand,
-                "weight_or_volume": o.weight_or_volume,
-                "price": o.price,
-                "original_price": o.original_price,
-                "discount_percentage": o.discount_percentage,
-                "price_per_unit": o.price_per_unit,
-                "ean_code": o.ean_code,
-                "image_url": o.image_url,
-                "category": o.category,
-                "promo_type": o.promo_type,
-                "validity_string": o.validity_string
-            })
-            
+            payload.append(
+                {
+                    "supermarket": o.supermarket,
+                    "store_id": o.store_id,
+                    "offer_id": o.offer_id,
+                    "name": o.name,
+                    "brand": o.brand,
+                    "weight_or_volume": o.weight_or_volume,
+                    "price": o.price,
+                    "original_price": o.original_price,
+                    "discount_percentage": o.discount_percentage,
+                    "price_per_unit": o.price_per_unit,
+                    "ean_code": o.ean_code,
+                    "image_url": o.image_url,
+                    "category": o.category,
+                    "promo_type": o.promo_type,
+                    "validity_string": o.validity_string,
+                }
+            )
+
         headers = self.headers.copy()
         headers["Prefer"] = "resolution=merge-duplicates"
-        
+
         try:
-            res = requests.post(f"{self.url}/rest/v1/promotions", headers=headers, json=payload, timeout=30)
+            res = requests.post(
+                f"{self.url}/rest/v1/promotions",
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
             if res.status_code not in (200, 201):
-                raise Exception(f"Supabase returned error: {res.status_code} - {res.text}")
+                raise Exception(
+                    f"Supabase returned error: {res.status_code} - {res.text}"
+                )
             return len(offers)
         except Exception as e:
             logger.error(f"Failed to save offers to Supabase: {e}")
@@ -328,10 +372,12 @@ class SupabaseStorage(BaseStorage):
             res = requests.get(
                 f"{self.url}/rest/v1/promotions?order=extracted_at.desc,supermarket.asc,name.asc",
                 headers=self.headers,
-                timeout=30
+                timeout=30,
             )
             if res.status_code != 200:
-                raise Exception(f"Supabase returned error: {res.status_code} - {res.text}")
+                raise Exception(
+                    f"Supabase returned error: {res.status_code} - {res.text}"
+                )
             return res.json()
         except Exception as e:
             logger.error(f"Failed to fetch offers from Supabase: {e}")
@@ -341,7 +387,7 @@ class SupabaseStorage(BaseStorage):
         offers = self.get_offers()
         if not offers:
             return []
-            
+
         breakdown = {}
         for o in offers:
             key = (o.get("supermarket"), o.get("store_id"))
@@ -352,32 +398,37 @@ class SupabaseStorage(BaseStorage):
                 price = float(price)
             except ValueError:
                 continue
-                
+
             if key not in breakdown:
                 breakdown[key] = {
                     "supermarket": key[0],
                     "store_id": key[1],
                     "total_offers": 0,
                     "min_price": price,
-                    "max_price": price
+                    "max_price": price,
                 }
             item = breakdown[key]
             item["total_offers"] += 1
             item["min_price"] = min(item["min_price"], price)
             item["max_price"] = max(item["max_price"], price)
-            
+
         return sorted(breakdown.values(), key=lambda x: x["total_offers"], reverse=True)
 
-    def update_offer(self, supermarket: str, store_id: str, offer_id: str, fields: Dict[str, Any]) -> bool:
+    def update_offer(
+        self, supermarket: str, store_id: str, offer_id: str, fields: Dict[str, Any]
+    ) -> bool:
         url = f"{self.url}/rest/v1/promotions?supermarket=eq.{supermarket}&store_id=eq.{store_id}&offer_id=eq.{offer_id}"
         from datetime import datetime, timezone
+
         payload = fields.copy()
         payload["extracted_at"] = datetime.now(timezone.utc).isoformat()
-        
+
         try:
             res = requests.patch(url, headers=self.headers, json=payload, timeout=30)
             if res.status_code not in (200, 204):
-                raise Exception(f"Supabase returned error: {res.status_code} - {res.text}")
+                raise Exception(
+                    f"Supabase returned error: {res.status_code} - {res.text}"
+                )
             return True
         except Exception as e:
             logger.error(f"Failed to update offer in Supabase: {e}")
@@ -388,7 +439,9 @@ class SupabaseStorage(BaseStorage):
         try:
             res = requests.delete(url, headers=self.headers, timeout=30)
             if res.status_code not in (200, 204):
-                raise Exception(f"Supabase returned error: {res.status_code} - {res.text}")
+                raise Exception(
+                    f"Supabase returned error: {res.status_code} - {res.text}"
+                )
             return True
         except Exception as e:
             logger.error(f"Failed to delete offer in Supabase: {e}")
@@ -399,11 +452,16 @@ class SupabaseStorage(BaseStorage):
         try:
             res = requests.get(url, headers=self.headers, timeout=30)
             if res.status_code != 200:
-                raise Exception(f"Supabase returned error: {res.status_code} - {res.text}")
+                raise Exception(
+                    f"Supabase returned error: {res.status_code} - {res.text}"
+                )
             rows = res.json()
             return [
-                r for r in rows 
-                if r.get("image_url") and r.get("image_url") != "" and "standard_images" not in r.get("image_url")
+                r
+                for r in rows
+                if r.get("image_url")
+                and r.get("image_url") != ""
+                and "standard_images" not in r.get("image_url")
             ]
         except Exception as e:
             logger.error(f"Failed to fetch images from Supabase: {e}")
@@ -414,7 +472,9 @@ class SupabaseStorage(BaseStorage):
         try:
             res = requests.delete(url, headers=self.headers, timeout=30)
             if res.status_code not in (200, 204):
-                raise Exception(f"Supabase returned error: {res.status_code} - {res.text}")
+                raise Exception(
+                    f"Supabase returned error: {res.status_code} - {res.text}"
+                )
             return True
         except Exception as e:
             logger.error(f"Failed to clear all promotions in Supabase: {e}")

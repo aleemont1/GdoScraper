@@ -166,9 +166,9 @@ def test_conad_unit_price_parsing():
 def test_standard_image_lookup():
     """Tests product name standard fresh produce image mappings."""
     # Matches fresh fruit
-    assert get_standard_image("Mele Golden") == "/storage/standard_images/mele.png"
+    assert get_standard_image("Mele Golden") == "/assets/standard_images/mele.png"
     assert (
-        get_standard_image("Banane biologiche") == "/storage/standard_images/banane.png"
+        get_standard_image("Banane biologiche") == "/assets/standard_images/banane.png"
     )
 
     # Exclusion keyword block check

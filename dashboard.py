@@ -800,8 +800,6 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 supermarket = payload.get("supermarket", "MANUAL").strip().upper()
                 store_id = payload.get("store_id", "MANUAL_STORE").strip()
 
-                import uuid
-
                 offer_id = payload.get("offer_id", "").strip()
                 if not offer_id:
                     offer_id = f"manual_{uuid.uuid4().hex[:8]}"

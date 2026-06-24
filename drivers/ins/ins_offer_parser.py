@@ -399,7 +399,9 @@ class InsOfferParser(AbstractOfferParser):
         result_parts = []
         for p in parts:
             letters = p.split()
-            if len(letters) > 2 and all(len(char) == 1 and char.isupper() for char in letters):
+            if len(letters) > 2 and all(
+                len(char) == 1 and char.isupper() for char in letters
+            ):
                 result_parts.append("".join(letters))
             else:
                 result_parts.append(p)

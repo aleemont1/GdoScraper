@@ -310,19 +310,20 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         # 6. Route: Serve static product crops and images securely from local storage
-        elif self.path.startswith("/storage/"):
+        elif self.path.startswith("/storage/") or self.path.startswith("/assets/"):
             import urllib.parse
 
             decoded_path = urllib.parse.unquote(self.path)
             file_rel_path = decoded_path.lstrip("/")
 
-            storage_dir_abs = os.path.abspath("storage")
+            base_dir_name = "storage" if self.path.startswith("/storage/") else "assets"
+            base_dir_abs = os.path.abspath(base_dir_name)
             requested_path_abs = os.path.abspath(file_rel_path)
 
             if (
                 (
-                    requested_path_abs == storage_dir_abs
-                    or requested_path_abs.startswith(storage_dir_abs + os.sep)
+                    requested_path_abs == base_dir_abs
+                    or requested_path_abs.startswith(base_dir_abs + os.sep)
                 )
                 and os.path.exists(requested_path_abs)
                 and os.path.isfile(requested_path_abs)

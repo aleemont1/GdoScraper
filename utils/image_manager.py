@@ -31,7 +31,7 @@ def get_standard_image(product_name: str) -> Optional[str]:
     """
     Maps highly common product names (fresh produce, major brands) to standardized image assets.
     Returns the served web URL if matched, otherwise None.
-    The directory storage/standard_images/ can be populated with user assets.
+    The directory assets/standard_images/ can be populated with user assets.
     """
     norm = _normalize_string(product_name)
     if not norm:
@@ -127,7 +127,7 @@ def get_standard_image(product_name: str) -> Optional[str]:
                 logger.info(
                     f"Standard fresh produce image match for '{product_name}' -> '{filename}'"
                 )
-                return f"/storage/standard_images/{filename}"
+                return f"/assets/standard_images/{filename}"
 
     # Major Brands & Common Packaged Items
     brand_packaged_map = {
@@ -142,7 +142,7 @@ def get_standard_image(product_name: str) -> Optional[str]:
             logger.info(
                 f"Standard brand/packaged image match for '{product_name}' -> '{filename}'"
             )
-            return f"/storage/standard_images/{filename}"
+            return f"/assets/standard_images/{filename}"
 
     return None
 

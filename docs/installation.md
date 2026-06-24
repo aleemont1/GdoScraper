@@ -23,6 +23,7 @@ Se preferisci usare il mouse e non vuoi toccare il terminale, questo è il metod
      - `GEMINI_API_KEY` = *inserisci_la_tua_chiave* (facoltativo, per l'AI)
      - `ANTHROPIC_API_KEY` = *inserisci_la_tua_chiave* (facoltativo, per l'AI)
      - `PYTHONUNBUFFERED` = `1` (necessario per visualizzare correttamente i log)
+     - *(Opzionale: Supabase)*: per usare il DB in cloud aggiungi `DB_ENGINE` = `supabase`, `SUPABASE_URL` = *tuo_url*, `SUPABASE_KEY` = *tua_chiave*.
 6. Clicca **Run**.
 7. Apri il browser all'indirizzo [http://localhost:8000](http://localhost:8000) e usa l'app!
 
@@ -76,6 +77,11 @@ GEMINI_API_KEY="la_tua_chiave_gemini"
 ANTHROPIC_API_KEY="la_tua_chiave_claude"
 CLAUDE_MODEL_NAME="claude-sonnet-4-6"
 PYTHONUNBUFFERED=1
+
+# Storage Engine (Opzionale: di default usa SQLite locale)
+# DB_ENGINE="supabase"
+# SUPABASE_URL="https://il-tuo-id.supabase.co"
+# SUPABASE_KEY="la-tua-chiave-api-supabase"
 ```
 4. **Avvia la Dashboard**: esegui `docker-compose up -d`. Visita http://localhost:8000.
 5. **Avvia la TUI Interattiva**: esegui `docker-compose run --rm tui`.

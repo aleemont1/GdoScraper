@@ -790,6 +790,67 @@ class DashboardHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 )
             return
 
+        # 3b. Route: Create a new offer
+        elif self.path == "/api/offers/create":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                supermarket = payload.get("supermarket", "MANUAL").strip().upper()
+                store_id = payload.get("store_id", "MANUAL_STORE").strip()
+
+                import uuid
+
+                offer_id = payload.get("offer_id", "").strip()
+                if not offer_id:
+                    offer_id = f"manual_{uuid.uuid4().hex[:8]}"
+
+                name = payload.get("name", "Nuovo Prodotto").strip()
+
+                try:
+                    price_val = payload.get("price", 0.0)
+                    price = float(price_val) if str(price_val).strip() != "" else 0.0
+                except ValueError:
+                    price = 0.0
+
+                from core.models import ProductOffer
+                from db_engine.database import get_storage
+
+                offer = ProductOffer(
+                    supermarket=supermarket,
+                    store_id=store_id,
+                    offer_id=offer_id,
+                    name=name,
+                    brand=payload.get("brand", ""),
+                    weight_or_volume=payload.get("weight_or_volume", ""),
+                    price=price,
+                    ean_code=payload.get("ean_code", ""),
+                    promo_type="STANDARD",
+                )
+
+                storage = get_storage(DB_PATH)
+                storage.save_offers([offer])
+
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps({"success": True, "offer": offer.dict()}).encode("utf-8")
+                )
+
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(
+                    json.dumps(
+                        {"error": f"Failed to create database record: {e}"}
+                    ).encode("utf-8")
+                )
+            return
+
         # 4. Route: Delete an offer from the database
         elif self.path == "/api/offers/delete":
             content_length = int(self.headers.get("Content-Length", 0))

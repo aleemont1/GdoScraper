@@ -1595,6 +1595,45 @@ function showConfirm(message) {
     });
 }
 
+// Add a new empty offer
+async function addNewRecord() {
+    try {
+        const payload = {
+            supermarket: "MANUAL",
+            store_id: "MANUAL_STORE",
+            name: "Nuovo Prodotto",
+            price: 0.0
+        };
+
+        const res = await fetch('/api/offers/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        if (data.success && data.offer) {
+            // Reload table to show the new record
+            await loadOffers();
+            
+            // Automatically enter edit mode for the newly created offer
+            setTimeout(() => {
+                editOffer(data.offer.supermarket, data.offer.store_id, data.offer.offer_id);
+            }, 500); // Wait for the table to render
+        }
+    } catch (err) {
+        console.error("Failed to add new record:", err);
+        alert(`Errore: ${err.message}`);
+    }
+}
+
 // Danger Zone: Clear entire database
 async function clearDatabase() {
     if (!await showConfirm("Sei VERAMENTE sicuro di voler ELIMINARE TUTTO il database? Questa azione NON può essere annullata!")) {

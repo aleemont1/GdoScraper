@@ -1,1 +1,1 @@
-from drivers.conad.conad_driver import ConadSupermarketDriver
+from drivers.conad.conad_driver import ConadSupermarketDriver as ConadSupermarketDriver

@@ -1,1 +1,1 @@
-from drivers.manual.manual_driver import ManualSupermarketDriver
+from drivers.manual.manual_driver import ManualSupermarketDriver as ManualSupermarketDriver

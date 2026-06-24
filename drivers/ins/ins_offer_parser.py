@@ -1,11 +1,12 @@
 import re
 import hashlib
-from typing import Dict, Any, List, Optional, Tuple
+from typing import List, Optional
 from core.base_driver import AbstractOfferParser
 from core.models import ProductOffer
 from utils.logger import setup_logger
 
 logger = setup_logger("InsOfferParser")
+
 
 class InsOfferParser(AbstractOfferParser):
     """
@@ -18,28 +19,139 @@ class InsOfferParser(AbstractOfferParser):
         # Global flyer validity date pattern for IN's
         # IN's flyers usually look like: "OFFERTE VALIDE DAL 21 MAGGIO AL 1 GIUGNO 2026"
         self._validity_regex = re.compile(
-            r"DAL\s+(\d+)\s+([A-Z]+)?\s*AL\s+(\d+)\s+([A-Z]+)\s+(\d{4})",
-            re.IGNORECASE
+            r"DAL\s+(\d+)\s+([A-Z]+)?\s*AL\s+(\d+)\s+([A-Z]+)\s+(\d{4})", re.IGNORECASE
         )
-        
+
         # Upper-case GDO stop words to avoid classifying standard nouns as brands
         self._brand_stop_words = {
-            "PEZZI", "PEZZO", "CAD.", "KG", "LT", "PZ", "DAL", "AL", "MAGGIO", "GIUGNO", 
-            "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE", "GENNAIO", 
-            "FEBBRAIO", "MARZO", "APRILE", "ANZICHÉ", "IN'S", "INS", "OFFERTE", "OFFERTA", "PREZZO",
-            "PRODOTTI", "PRODOTTO", "ITALIANO", "ITALIANA", "FRESCHI", "BANCO", "LINEA", 
-            "FORMATO", "GRATIS", "SCOPRI", "TUTTE", "LAVAGGI", "LAVATRICE", "BOCCONCINI",
-            "RICOTTA", "SNACK", "LASAGNE", "PIADINA", "TAVOLETTA", "FILETTO", "FILETTI",
-            "VINO", "BIRRA", "SHAMPOO", "BALSAMO", "DENTIFRICIO", "MAIONESE", "COLLUTORIO",
-            "BAGNOSCHIUMA", "DEODORANTE", "PANNOLINI", "CARTA", "IGIENICA", "ASCIUGATUTTO",
-            "DETERSIVO", "AMMORBIDENTE", "PASTA", "PISELLI", "TONNO", "GALLETTE", "BIOLOGICHE",
-            "FROLINI", "CACAO", "EXTRA", "IGP", "CLASSICA", "CLASSICO", "RUSTICI", "SFILACCETTI",
-            "DETERGENTE", "DETERGENTI", "PAVIMENTI", "PASTIGLIE", "LAVASTOVIGLIE", "BLUE",
-            "ACTIVE", "WC", "LAGER", "IGT", "BAGNODOCCIA", "DOC", "DOP", "FRESCO", "FRESCA",
-            "SOTTOACETO", "OLIO", "SEMPLICE", "CONVENIENZA", "FORMATO", "SCORTA", "MULTIPACK",
-            "ASTUCCIO", "VASCHETTA", "CONFEZIONE", "YOGURT", "FROLLINI", "GRATINATI", "MERLUZZO",
-            "ALASKA", "OCEANO", "PACIFICO", "SOGNI", "PARTIRE", "MA", "VAI", "SOLO", "CON",
-            "DELL", "DELLA", "DELLO", "DEGLI", "DELLE", "AI", "AGLI", "ALLE", "DA", "IL", "LA", "LO", "I", "GLI", "LE"
+            "PEZZI",
+            "PEZZO",
+            "CAD.",
+            "KG",
+            "LT",
+            "PZ",
+            "DAL",
+            "AL",
+            "MAGGIO",
+            "GIUGNO",
+            "LUGLIO",
+            "AGOSTO",
+            "SETTEMBRE",
+            "OTTOBRE",
+            "NOVEMBRE",
+            "DICEMBRE",
+            "GENNAIO",
+            "FEBBRAIO",
+            "MARZO",
+            "APRILE",
+            "ANZICHÉ",
+            "IN'S",
+            "INS",
+            "OFFERTE",
+            "OFFERTA",
+            "PREZZO",
+            "PRODOTTI",
+            "PRODOTTO",
+            "ITALIANO",
+            "ITALIANA",
+            "FRESCHI",
+            "BANCO",
+            "LINEA",
+            "FORMATO",
+            "GRATIS",
+            "SCOPRI",
+            "TUTTE",
+            "LAVAGGI",
+            "LAVATRICE",
+            "BOCCONCINI",
+            "RICOTTA",
+            "SNACK",
+            "LASAGNE",
+            "PIADINA",
+            "TAVOLETTA",
+            "FILETTO",
+            "FILETTI",
+            "VINO",
+            "BIRRA",
+            "SHAMPOO",
+            "BALSAMO",
+            "DENTIFRICIO",
+            "MAIONESE",
+            "COLLUTORIO",
+            "BAGNOSCHIUMA",
+            "DEODORANTE",
+            "PANNOLINI",
+            "CARTA",
+            "IGIENICA",
+            "ASCIUGATUTTO",
+            "DETERSIVO",
+            "AMMORBIDENTE",
+            "PASTA",
+            "PISELLI",
+            "TONNO",
+            "GALLETTE",
+            "BIOLOGICHE",
+            "FROLINI",
+            "CACAO",
+            "EXTRA",
+            "IGP",
+            "CLASSICA",
+            "CLASSICO",
+            "RUSTICI",
+            "SFILACCETTI",
+            "DETERGENTE",
+            "DETERGENTI",
+            "PAVIMENTI",
+            "PASTIGLIE",
+            "LAVASTOVIGLIE",
+            "BLUE",
+            "ACTIVE",
+            "WC",
+            "LAGER",
+            "IGT",
+            "BAGNODOCCIA",
+            "DOC",
+            "DOP",
+            "FRESCO",
+            "FRESCA",
+            "SOTTOACETO",
+            "OLIO",
+            "SEMPLICE",
+            "CONVENIENZA",
+            "FORMATO",
+            "SCORTA",
+            "MULTIPACK",
+            "ASTUCCIO",
+            "VASCHETTA",
+            "CONFEZIONE",
+            "YOGURT",
+            "FROLLINI",
+            "GRATINATI",
+            "MERLUZZO",
+            "ALASKA",
+            "OCEANO",
+            "PACIFICO",
+            "SOGNI",
+            "PARTIRE",
+            "MA",
+            "VAI",
+            "SOLO",
+            "CON",
+            "DELL",
+            "DELLA",
+            "DELLO",
+            "DEGLI",
+            "DELLE",
+            "AI",
+            "AGLI",
+            "ALLE",
+            "DA",
+            "IL",
+            "LA",
+            "LO",
+            "I",
+            "GLI",
+            "LE",
         }
 
     def parse_flyer_validity(self, text: str) -> Optional[str]:
@@ -51,12 +163,16 @@ class InsOfferParser(AbstractOfferParser):
         if match:
             return match.group(0).strip()
         # Fallback date search
-        simple_dates = re.search(r"DAL\s+\d+\s+[A-Z]+\s+AL\s+\d+\s+[A-Z]+\s+\d{4}", text, re.IGNORECASE)
+        simple_dates = re.search(
+            r"DAL\s+\d+\s+[A-Z]+\s+AL\s+\d+\s+[A-Z]+\s+\d{4}", text, re.IGNORECASE
+        )
         if simple_dates:
             return simple_dates.group(0).strip()
         return None
 
-    def parse_cell(self, text: str, store_id: str, validity_string: Optional[str]) -> ProductOffer:
+    def parse_cell(
+        self, text: str, store_id: str, validity_string: Optional[str]
+    ) -> ProductOffer:
         """
         Extracts a validated ProductOffer model from a single cell's text block.
         Raises ValueError if the cell represents a non-product banner or lacks essential fields.
@@ -68,27 +184,39 @@ class InsOfferParser(AbstractOfferParser):
 
         # Non-product banner text blacklist
         blacklist_terms = [
-            "CONDIZIONI DI VENDITA", "LAVORA CON NOI", "REGOLAMENTO", "Fino a esaurimento",
-            "Fotografie e descrizioni", "i prezzi possono subire", "non disperdere nell'ambiente",
-            "IN'S MERCATO", "www.insmercato.it"
+            "CONDIZIONI DI VENDITA",
+            "LAVORA CON NOI",
+            "REGOLAMENTO",
+            "Fino a esaurimento",
+            "Fotografie e descrizioni",
+            "i prezzi possono subire",
+            "non disperdere nell'ambiente",
+            "IN'S MERCATO",
+            "www.insmercato.it",
         ]
         for term in blacklist_terms:
             if term.lower() in text.lower():
-                raise ValueError(f"Skipped: Contains non-product blacklist term '{term}'")
+                raise ValueError(
+                    f"Skipped: Contains non-product blacklist term '{term}'"
+                )
 
         one_plus_one_match = self._one_plus_one.search(text)
-        
+
         price: Optional[float] = None
         original_price: Optional[float] = None
         discount_percent: Optional[int] = None
         promo_type = "STANDARD"
-        
+
         unit_price_str = self._extract_unit_price(text)
-        
+
         if one_plus_one_match:
-            single_price = float(f"{one_plus_one_match.group(1)}.{one_plus_one_match.group(2)}")
-            promo_price = float(f"{one_plus_one_match.group(3)}.{one_plus_one_match.group(4)}")
-            
+            single_price = float(
+                f"{one_plus_one_match.group(1)}.{one_plus_one_match.group(2)}"
+            )
+            promo_price = float(
+                f"{one_plus_one_match.group(3)}.{one_plus_one_match.group(4)}"
+            )
+
             price = promo_price
             original_price = single_price
             promo_type = "1+1"
@@ -97,7 +225,7 @@ class InsOfferParser(AbstractOfferParser):
             pct_match = self._discount_pct.search(text)
             if pct_match:
                 discount_percent = int(pct_match.group(1))
-                
+
             if len(prices_found) == 1:
                 price = prices_found[0]
             elif len(prices_found) >= 2:
@@ -105,9 +233,11 @@ class InsOfferParser(AbstractOfferParser):
                 price = sorted_prices[0]
                 original_price = sorted_prices[1]
                 promo_type = "PERCENTAGE_DISCOUNT" if discount_percent else "DISCOUNT"
-                
+
                 if discount_percent is None and original_price > 0:
-                    discount_percent = int(round((1.0 - (price / original_price)) * 100))
+                    discount_percent = int(
+                        round((1.0 - (price / original_price)) * 100)
+                    )
 
         if price is None:
             raise ValueError("Skipped: No valid product price could be parsed")
@@ -123,7 +253,9 @@ class InsOfferParser(AbstractOfferParser):
             raise ValueError("Skipped: Product description too short or invalid")
 
         # Generate unique ID
-        unique_payload = f"INS:{store_id}:{validity_string or 'ALL'}:{name_str}:{price:.2f}"
+        unique_payload = (
+            f"INS:{store_id}:{validity_string or 'ALL'}:{name_str}:{price:.2f}"
+        )
         offer_id = hashlib.sha256(unique_payload.encode("utf-8")).hexdigest()[:32]
 
         return ProductOffer(
@@ -141,7 +273,7 @@ class InsOfferParser(AbstractOfferParser):
             image_url=None,
             category=None,
             promo_type=promo_type,
-            validity_string=validity_string
+            validity_string=validity_string,
         )
 
     def _extract_unit_price(self, text: str) -> Optional[str]:
@@ -155,96 +287,109 @@ class InsOfferParser(AbstractOfferParser):
                     matches_found.append(f"€/l {price_val}")
                 else:
                     matches_found.append(f"€/pz {price_val}")
-                    
+
         if matches_found:
             return " ".join(matches_found)
         return None
 
     def _extract_prices(self, text: str, unit_price_str: Optional[str]) -> List[float]:
         prices: List[float] = []
-        
+
         # Pattern A: "1,29"
         for m in self._price_decimal.finditer(text):
             val = float(f"{m.group(1)}.{m.group(2)}")
             if val not in prices:
                 prices.append(val)
-                
+
         # Pattern B: "1 € ,29"
         for m in self._price_separated.finditer(text):
             val = float(f"{m.group(1)}.{m.group(2)}")
             if val not in prices:
                 prices.append(val)
-                
+
         if not prices:
             for m in self._price_split.finditer(text):
                 val = float(f"{m.group(1)}.{m.group(2)}")
                 if val not in prices:
                     prices.append(val)
-                    
+
         if unit_price_str:
             unit_price_matches = self._price_decimal.findall(unit_price_str)
             for m in unit_price_matches:
                 unit_val = float(f"{m[0]}.{m[1]}")
                 if unit_val in prices:
                     prices.remove(unit_val)
-                    
+
         return prices
 
     def _extract_brand(self, text: str) -> Optional[str]:
         words = text.split()
         brand_words = []
-        
+
         for w in words:
             w_clean = re.sub(r"[^\w\s]", "", w).strip()
             if not w_clean or len(w_clean) < 3:
                 continue
-                
-            if w_clean.isupper() and w_clean.isalpha() and w_clean not in self._brand_stop_words:
+
+            if (
+                w_clean.isupper()
+                and w_clean.isalpha()
+                and w_clean not in self._brand_stop_words
+            ):
                 brand_words.append(w_clean)
             else:
                 if brand_words:
                     break
-                    
+
         if brand_words:
             return " ".join(brand_words)
         return None
 
-    def _extract_clean_name(self, text: str, brand: Optional[str], weight: Optional[str]) -> str:
+    def _extract_clean_name(
+        self, text: str, brand: Optional[str], weight: Optional[str]
+    ) -> str:
         """
         Strips prices, brands, discounts, and units, leaving a clean, descriptive product name.
         """
         # Collapse multi-spaces
         clean = " ".join(text.split())
-        
+
         # Remove discount percentages
         clean = self._discount_pct.sub("", clean)
-        
+
         # Remove unit price strings
         for p in self._unit_price_patterns:
             clean = p.sub("", clean)
-            
+
         # Remove weight/volume
         if weight:
             clean = re.sub(re.escape(weight), "", clean, flags=re.IGNORECASE)
-            
+
         # Remove specific pricing phrases
-        clean = re.sub(r"\b(pezzo|pezzi|anziché|anzichè|a soli|solo)\b", "", clean, flags=re.IGNORECASE)
-        
+        clean = re.sub(
+            r"\b(pezzo|pezzi|anziché|anzichè|a soli|solo)\b",
+            "",
+            clean,
+            flags=re.IGNORECASE,
+        )
+
         # Remove selling price decimal matches
         clean = self._price_decimal.sub("", clean)
         clean = self._price_separated.sub("", clean)
         clean = self._price_split.sub("", clean)
-        
+
         # Remove brand name
         if brand:
-            clean = re.sub(r"\b" + re.escape(brand) + r"\b", "", clean, flags=re.IGNORECASE)
-            
+            clean = re.sub(
+                r"\b" + re.escape(brand) + r"\b", "", clean, flags=re.IGNORECASE
+            )
+
         # Remove symbols and trailing punctuation
         clean = re.sub(r"[€\-\*\%\,\.\:\;\#\_\/]", "", clean)
-        
+
         # Standardize whitespace and strip
         clean = " ".join(clean.split()).strip()
-        
+
         # Title case standard names
         return clean.capitalize()
 
@@ -254,7 +399,7 @@ class InsOfferParser(AbstractOfferParser):
         result_parts = []
         for p in parts:
             letters = p.split()
-            if len(letters) > 2 and all(len(l) == 1 and l.isupper() for l in letters):
+            if len(letters) > 2 and all(len(char) == 1 and char.isupper() for char in letters):
                 result_parts.append("".join(letters))
             else:
                 result_parts.append(p)

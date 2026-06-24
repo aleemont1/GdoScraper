@@ -6,7 +6,6 @@ via geocoding or coordinate proximity search, and parses the response structure.
 """
 
 import re
-import requests
 from typing import Dict, Any, List, Optional, Tuple
 from core.base_driver import AbstractApiSupermarketDriver
 from core.models import ProductOffer
@@ -28,11 +27,11 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
         radius: int = 15,
         choose_store: bool = False,
         choose_flyer: bool = False,
-        selected_flyer_ids: Optional[List[str]] = None
+        selected_flyer_ids: Optional[List[str]] = None,
     ) -> None:
         """
         Initializes the Coop driver with configuration and request session details.
-        
+
         Args:
             base_url: Base domain URL of the Coop API server.
             radius: Proximity search radius in kilometers.
@@ -40,17 +39,21 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
             choose_flyer: Unused parameter preserved for interface compliance.
             selected_flyer_ids: Optional list of flyer IDs to target exclusively.
         """
-        super().__init__(radius=radius, choose_store=choose_store, choose_flyer=choose_flyer)
+        super().__init__(
+            radius=radius, choose_store=choose_store, choose_flyer=choose_flyer
+        )
         self._base_url = base_url.rstrip("/")
         self._resolved_store_code: Optional[str] = None
         self.selected_flyer_ids = selected_flyer_ids
-        
+
         # Override referer & origin specific to Coop
-        self._session.headers.update({
-            "Origin": "https://www.coop.it",
-            "Referer": "https://www.coop.it/ricerca-negozi"
-        })
-        
+        self._session.headers.update(
+            {
+                "Origin": "https://www.coop.it",
+                "Referer": "https://www.coop.it/ricerca-negozi",
+            }
+        )
+
         # Compiled Regex patterns
         self._price_regex = re.compile(r"(\d+,\d{2})\s*€")
         self._discount_regex = re.compile(r"(\d+)\s*%")
@@ -70,15 +73,17 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
     def _search_stores_by_coords(self, lat: float, lon: float) -> List[Dict[str, Any]]:
         """
         Queries the Coop store search API using coordinates.
-        
+
         Args:
             lat: Latitude.
             lon: Longitude.
-            
+
         Returns:
             List of store dictionaries from Coop search API.
         """
-        search_url = "https://www.coop.it/api/esb/storelocator/searchStores?_format=form"
+        search_url = (
+            "https://www.coop.it/api/esb/storelocator/searchStores?_format=form"
+        )
         payload = {"coords": {"latitude": lat, "longitude": lon}, "storeName": None}
         try:
             res = self._session.post(search_url, json=payload, timeout=12)
@@ -92,14 +97,16 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
     def _resolve_store_details_by_db_id(self, db_id: int) -> Tuple[Optional[str], str]:
         """
         Resolves the store details via getStoreDetail API.
-        
+
         Args:
             db_id: Database unique identifier for Coop store.
-            
+
         Returns:
             A tuple of (store_code, store_name).
         """
-        detail_url = "https://www.coop.it/api/esb/storelocator/getStoreDetail?_format=form"
+        detail_url = (
+            "https://www.coop.it/api/esb/storelocator/getStoreDetail?_format=form"
+        )
         payload = {"storeId": [db_id]}
         try:
             res = self._session.post(detail_url, json=payload, timeout=12)
@@ -120,10 +127,10 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
     def _fetch_leaflets_for_store(self, store_code: str) -> List[Dict[str, Any]]:
         """
         Retrieves active flyer leaflet metadata for the given store code.
-        
+
         Args:
             store_code: Canonical 4-digit store code.
-            
+
         Returns:
             List of leaflets.
         """
@@ -137,14 +144,16 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
             logger.error(f"Failed to retrieve flyer leaflets list from Coop API: {e}")
         return []
 
-    def _fetch_promos_for_leaflet(self, leaflet_id: str, store_code: str) -> List[Dict[str, Any]]:
+    def _fetch_promos_for_leaflet(
+        self, leaflet_id: str, store_code: str
+    ) -> List[Dict[str, Any]]:
         """
         Retrieves promotion items for the specified leaflet ID and store code.
-        
+
         Args:
             leaflet_id: Leaflet catalog identifier.
             store_code: Target store code.
-            
+
         Returns:
             List of promo items.
         """
@@ -161,59 +170,95 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
     def discover_stores(self, store_id: str) -> List[Dict[str, Any]]:
         """
         Discovers Coop stores matching the query coordinates or location name.
-        
+
         Args:
             store_id: Coordinates query ('lat,lon') or city name query.
-            
+
         Returns:
             A list of discovered store dictionaries.
         """
         self._fetch_csrf_token()
-        
+
         # Check if coordinates (lat, lon)
         coords_match = self.COORDINATES_REGEX.match(store_id)
         lat, lon = None, None
-        
+
         if coords_match:
             lat = float(coords_match.group(1))
             lon = float(coords_match.group(2))
         elif store_id.isdigit():
             if len(store_id) <= 4:
                 # Direct code: return it directly
-                return [{"id": store_id.zfill(4), "name": f"Coop Code: {store_id}", "address": "", "city": "", "distance": 0.0}]
+                return [
+                    {
+                        "id": store_id.zfill(4),
+                        "name": f"Coop Code: {store_id}",
+                        "address": "",
+                        "city": "",
+                        "distance": 0.0,
+                    }
+                ]
             else:
                 code, name = self._resolve_store_details_by_db_id(int(store_id))
                 if code:
-                    return [{"id": code, "name": name, "address": "", "city": "", "distance": 0.0}]
-                return [{"id": store_id, "name": name, "address": "", "city": "", "distance": None}]
+                    return [
+                        {
+                            "id": code,
+                            "name": name,
+                            "address": "",
+                            "city": "",
+                            "distance": 0.0,
+                        }
+                    ]
+                return [
+                    {
+                        "id": store_id,
+                        "name": name,
+                        "address": "",
+                        "city": "",
+                        "distance": None,
+                    }
+                ]
         else:
             coords = self._geocode_location(store_id)
             if coords:
                 lat, lon = coords
-                
+
         if lat is not None and lon is not None:
             stores = self._search_stores_by_coords(lat, lon)
             stores_list = []
             for s in stores:
                 coop_db_id = s.get("id")
-                stores_list.append({
-                    "id": str(coop_db_id),
-                    "name": s.get("name"),
-                    "address": s.get("address"),
-                    "city": s.get("city"),
-                    "distance": float(s.get("distance", 0)) / 1000.0 if s.get("distance") is not None else 0.0
-                })
+                stores_list.append(
+                    {
+                        "id": str(coop_db_id),
+                        "name": s.get("name"),
+                        "address": s.get("address"),
+                        "city": s.get("city"),
+                        "distance": float(s.get("distance", 0)) / 1000.0
+                        if s.get("distance") is not None
+                        else 0.0,
+                    }
+                )
             return stores_list
-            
-        return [{"id": store_id, "name": f"Coop Store {store_id}", "address": "", "city": "", "distance": None}]
+
+        return [
+            {
+                "id": store_id,
+                "name": f"Coop Store {store_id}",
+                "address": "",
+                "city": "",
+                "distance": None,
+            }
+        ]
 
     def discover_flyers(self, store_code: str) -> List[Dict[str, Any]]:
         """
         Retrieves active flyers/leaflets for the store code.
-        
+
         Args:
             store_code: Target store code.
-            
+
         Returns:
             List of flyer dictionaries.
         """
@@ -227,29 +272,31 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
         leaflets = self._fetch_leaflets_for_store(resolved_code)
         flyers = []
         for lf in leaflets:
-            flyers.append({
-                "id": str(lf.get("id")),
-                "title": lf.get("titolo", "Coop Flyer"),
-                "validity": lf.get("pretty_name_validita", ""),
-                "featured": bool(lf.get("featured")),
-                "pdf_url": lf.get("url")
-            })
+            flyers.append(
+                {
+                    "id": str(lf.get("id")),
+                    "title": lf.get("titolo", "Coop Flyer"),
+                    "validity": lf.get("pretty_name_validita", ""),
+                    "featured": bool(lf.get("featured")),
+                    "pdf_url": lf.get("url"),
+                }
+            )
         return flyers
 
     def fetch_promotions(self, store_id: str) -> Any:
         """
         Fetches promotions for the resolved store ID (or store code) and selected flyers.
         Contains absolutely no console prompts or user interaction.
-        
+
         Args:
             store_id: Target store identifier or resolved code.
-            
+
         Returns:
             List of raw promotion items.
         """
         self._fetch_csrf_token()
         store_code = store_id
-        
+
         if store_id.isdigit() and len(store_id) > 4:
             code, _ = self._resolve_store_details_by_db_id(int(store_id))
             if code:
@@ -264,7 +311,7 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                 coords = self._geocode_location(store_id)
                 if coords:
                     lat, lon = coords
-            
+
             if lat is not None and lon is not None:
                 stores = self._search_stores_by_coords(lat, lon)
                 if stores:
@@ -272,22 +319,26 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                     code, _ = self._resolve_store_details_by_db_id(coop_db_id)
                     if code:
                         store_code = code
-                        
+
         if not store_code:
-            logger.error(f"Could not resolve store code for store reference: {store_id}")
+            logger.error(
+                f"Could not resolve store code for store reference: {store_id}"
+            )
             return []
-            
+
         self._resolved_store_code = store_code
-        
+
         leaflets = self._fetch_leaflets_for_store(store_code)
         if not leaflets:
             logger.warning(f"No flyer leaflets found for store: {store_code}")
             return []
-            
+
         selected_leaflets = leaflets
         if self.selected_flyer_ids:
-            selected_leaflets = [lf for lf in leaflets if str(lf.get("id")) in self.selected_flyer_ids]
-            
+            selected_leaflets = [
+                lf for lf in leaflets if str(lf.get("id")) in self.selected_flyer_ids
+            ]
+
         all_promos = []
         for lf in selected_leaflets:
             leaf_id = lf.get("id")
@@ -295,26 +346,28 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
             logger.info(f"Fetching promos for flyer: '{leaf_title}' (ID: {leaf_id})")
             promos = self._fetch_promos_for_leaflet(leaf_id, store_code)
             all_promos.extend(promos)
-            
+
         return all_promos
 
     def parse_promotions(self, raw_data: Any, store_id: str) -> List[ProductOffer]:
         """
         Parses raw items into normalized validated Pydantic ProductOffer models.
-        
+
         Args:
             raw_data: A list of raw promo item dicts.
             store_id: The active store identifier.
-            
+
         Returns:
             A list of validated ProductOffer objects.
         """
         if not isinstance(raw_data, list):
-            logger.error("Invalid raw data structure provided. Expected a list of dictionaries.")
+            logger.error(
+                "Invalid raw data structure provided. Expected a list of dictionaries."
+            )
             return []
-            
+
         parsed_offers: List[ProductOffer] = []
-        
+
         for idx, item in enumerate(raw_data):
             try:
                 offer = self._parse_single_item(item, store_id)
@@ -322,46 +375,61 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                     parsed_offers.append(offer)
             except Exception as e:
                 logger.warning(f"Error parsing raw item at index {idx}: {e}")
-                
-        logger.info(f"Parsed {len(parsed_offers)} out of {len(raw_data)} Coop promo items.")
+
+        logger.info(
+            f"Parsed {len(parsed_offers)} out of {len(raw_data)} Coop promo items."
+        )
         return parsed_offers
 
-    def _parse_single_item(self, item: Dict[str, Any], store_id: str) -> Optional[ProductOffer]:
+    def _parse_single_item(
+        self, item: Dict[str, Any], store_id: str
+    ) -> Optional[ProductOffer]:
         """Parses a single raw promo item dictionary."""
         actual_store_id = getattr(self, "_resolved_store_code", None) or store_id
         offer_id = item.get("id")
         if not offer_id:
             logger.warning("Skipping promo item missing unique ID.")
             return None
-            
+
         name = item.get("desc_promo")
         if not name:
             logger.warning(f"Skipping promo item {offer_id} missing descriptive name.")
             return None
-            
+
         brand = item.get("brand")
         weight = item.get("desc_promo2")
         category = item.get("categoryCode")
         image_url = item.get("img")
         validity = item.get("promo_pretty_name_validita")
-        
+
         ean_code = None
         products = item.get("prodotti", [])
         if products and isinstance(products, list):
             ean_code = str(products[0])
-            
-        price, original_price, discount_percent, unit_price = self._parse_pricing_layout(item)
-        
+
+        price, original_price, discount_percent, unit_price = (
+            self._parse_pricing_layout(item)
+        )
+
         if price is None:
-            logger.debug(f"Skipping offer {offer_id} ('{name}') because no valid price could be parsed.")
+            logger.debug(
+                f"Skipping offer {offer_id} ('{name}') because no valid price could be parsed."
+            )
             return None
-            
+
         promo_type = "STANDARD"
         collezioni = item.get("collezioni") or []
-        
+
         is_soci = "soci" in collezioni
         if not is_soci:
-            layout_keys = ["CXTop", "CXBottom", "SXTop", "SXBottom", "DXTop", "DXBottom"]
+            layout_keys = [
+                "CXTop",
+                "CXBottom",
+                "SXTop",
+                "SXBottom",
+                "DXTop",
+                "DXBottom",
+            ]
             for k in layout_keys:
                 node = item.get(k)
                 if node and isinstance(node, dict):
@@ -370,7 +438,7 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                         if line and any(w in line.lower() for w in ["socio", "soci"]):
                             is_soci = True
                             break
-                            
+
         if is_soci:
             promo_type = "PREZZO_SOCIO"
         elif discount_percent is not None:
@@ -393,7 +461,7 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
             image_url=image_url,
             category=category,
             promo_type=promo_type,
-            validity_string=validity
+            validity_string=validity,
         )
 
     def _parse_pricing_layout(
@@ -402,36 +470,40 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
         """
         Scans layout keys and extracts prices, discount percentages, and unit pricing.
         Uses GDO heuristics: if two prices exist, the smaller is the promo price.
-        
+
         Returns:
             Tuple: (promo_price, original_price, discount_percentage, unit_price)
         """
         layout_keys = ["CXTop", "CXBottom", "SXTop", "SXBottom", "DXTop", "DXBottom"]
-        
+
         prices_found: List[float] = []
         discount_percent: Optional[int] = None
         unit_price_str: Optional[str] = None
-        
+
         for key in layout_keys:
             node = item.get(key)
             if not node or not isinstance(node, dict):
                 continue
-                
+
             text_lines = node.get("txt") or []
             for line in text_lines:
                 if not line or not isinstance(line, str):
                     continue
-                    
+
                 line_clean = line.replace("\u20ac", "€").strip()
-                
-                if "al kg" in line_clean or "al lt" in line_clean or "al pz" in line_clean:
+
+                if (
+                    "al kg" in line_clean
+                    or "al lt" in line_clean
+                    or "al pz" in line_clean
+                ):
                     unit_price_str = line_clean
                     continue
-                    
+
                 disc_match = self._discount_regex.search(line_clean)
                 if disc_match and "%" in line_clean:
                     discount_percent = int(disc_match.group(1))
-                    
+
                 price_matches = self._price_regex.findall(line_clean)
                 for price_str in price_matches:
                     try:
@@ -440,18 +512,20 @@ class CoopSupermarketDriver(AbstractApiSupermarketDriver):
                             prices_found.append(price_float)
                     except ValueError:
                         pass
-                        
+
         promo_price: Optional[float] = None
         original_price: Optional[float] = None
-        
+
         if len(prices_found) == 1:
             promo_price = prices_found[0]
         elif len(prices_found) >= 2:
             sorted_prices = sorted(prices_found)
             promo_price = sorted_prices[0]
             original_price = sorted_prices[1]
-            
+
             if discount_percent is None and original_price > 0:
-                discount_percent = int(round((1.0 - (promo_price / original_price)) * 100))
-                
+                discount_percent = int(
+                    round((1.0 - (promo_price / original_price)) * 100)
+                )
+
         return promo_price, original_price, discount_percent, unit_price_str

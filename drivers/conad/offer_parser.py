@@ -1,10 +1,11 @@
 import re
-from typing import Dict, Any, List, Optional, Tuple
+from typing import List, Optional
 from core.base_driver import AbstractOfferParser
 from core.models import ProductOffer
 from utils.logger import setup_logger
 
 logger = setup_logger("ConadOfferParser")
+
 
 class ConadOfferParser(AbstractOfferParser):
     """
@@ -14,27 +15,139 @@ class ConadOfferParser(AbstractOfferParser):
 
     def __init__(self) -> None:
         super().__init__()
-        
+
         # Upper-case GDO stop words to avoid classifying standard nouns as brands
         self._brand_stop_words = {
-            "PEZZI", "PEZZO", "CAD.", "KG", "LT", "PZ", "DAL", "AL", "MAGGIO", "GIUGNO", 
-            "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE", "GENNAIO", 
-            "FEBBRAIO", "MARZO", "APRILE", "ANZICHÉ", "CONAD", "OFFERTE", "OFFERTA", "PREZZO",
-            "PRODOTTI", "PRODOTTO", "ITALIANO", "ITALIANA", "FRESCHI", "BANCO", "LINEA", 
-            "FORMATO", "GRATIS", "SCOPRI", "TUTTE", "HeyConad", "LAVAGGI", "LAVATRICE",
-            "BOCCONCINI", "RICOTTA", "SNACK", "LASAGNE", "PIADINA", "TAVOLETTA", "FILETTO",
-            "FILETTI", "VINO", "BIRRA", "SHAMPOO", "BALSAMO", "DENTIFRICIO", "MAIONESE",
-            "COLLUTORIO", "BAGNOSCHIUMA", "DEODORANTE", "PANNOLINI", "CARTA", "IGIENICA",
-            "ASCIUGATUTTO", "DETERSIVO", "AMMORBIDENTE", "PASTA", "PISELLI", "DETERSIVO",
-            "TONNO", "VINO", "GALLETTE", "BIOLOGICHE", "FROLINI", "CACAO", "EXTRA", "IGP",
-            "CLASSICA", "CLASSICO", "RUSTICI", "SFILACCETTI", "DETERGENTE", "DETERGENTI", 
-            "PAVIMENTI", "PASTIGLIE", "LAVASTOVIGLIE", "BLUE", "ACTIVE", "WC", "LAGER", 
-            "IGT", "BAGNODOCCIA", "DOC", "DOP", "IGP", "FRESCO", "FRESCA", "SOTTOACETO", 
-            "OLIO", "SEMPLICE", "CONVENIENZA", "FORMATO", "SCORTA", "MULTIPACK", "ASTUCCIO", 
-            "VASCHETTA", "CONFEZIONE", "YOGURT", "FROLLINI", "GRATINATI", "MERLUZZO", 
-            "ALASKA", "OCEANO", "PACIFICO", "SOGNI", "PARTIRE", "MA", "VAI", "SOLO", 
-            "POSSESSORI", "QUESTOA", "QUESTO", "GIRO", "VINCERE", "CON", "DELL", "DELLA", 
-            "DELLO", "DEGLI", "DELLE", "AI", "AGLI", "ALLE", "DA"
+            "PEZZI",
+            "PEZZO",
+            "CAD.",
+            "KG",
+            "LT",
+            "PZ",
+            "DAL",
+            "AL",
+            "MAGGIO",
+            "GIUGNO",
+            "LUGLIO",
+            "AGOSTO",
+            "SETTEMBRE",
+            "OTTOBRE",
+            "NOVEMBRE",
+            "DICEMBRE",
+            "GENNAIO",
+            "FEBBRAIO",
+            "MARZO",
+            "APRILE",
+            "ANZICHÉ",
+            "CONAD",
+            "OFFERTE",
+            "OFFERTA",
+            "PREZZO",
+            "PRODOTTI",
+            "PRODOTTO",
+            "ITALIANO",
+            "ITALIANA",
+            "FRESCHI",
+            "BANCO",
+            "LINEA",
+            "FORMATO",
+            "GRATIS",
+            "SCOPRI",
+            "TUTTE",
+            "HeyConad",
+            "LAVAGGI",
+            "LAVATRICE",
+            "BOCCONCINI",
+            "RICOTTA",
+            "SNACK",
+            "LASAGNE",
+            "PIADINA",
+            "TAVOLETTA",
+            "FILETTO",
+            "FILETTI",
+            "VINO",
+            "BIRRA",
+            "SHAMPOO",
+            "BALSAMO",
+            "DENTIFRICIO",
+            "MAIONESE",
+            "COLLUTORIO",
+            "BAGNOSCHIUMA",
+            "DEODORANTE",
+            "PANNOLINI",
+            "CARTA",
+            "IGIENICA",
+            "ASCIUGATUTTO",
+            "DETERSIVO",
+            "AMMORBIDENTE",
+            "PASTA",
+            "PISELLI",
+            "DETERSIVO",
+            "TONNO",
+            "VINO",
+            "GALLETTE",
+            "BIOLOGICHE",
+            "FROLINI",
+            "CACAO",
+            "EXTRA",
+            "IGP",
+            "CLASSICA",
+            "CLASSICO",
+            "RUSTICI",
+            "SFILACCETTI",
+            "DETERGENTE",
+            "DETERGENTI",
+            "PAVIMENTI",
+            "PASTIGLIE",
+            "LAVASTOVIGLIE",
+            "BLUE",
+            "ACTIVE",
+            "WC",
+            "LAGER",
+            "IGT",
+            "BAGNODOCCIA",
+            "DOC",
+            "DOP",
+            "IGP",
+            "FRESCO",
+            "FRESCA",
+            "SOTTOACETO",
+            "OLIO",
+            "SEMPLICE",
+            "CONVENIENZA",
+            "FORMATO",
+            "SCORTA",
+            "MULTIPACK",
+            "ASTUCCIO",
+            "VASCHETTA",
+            "CONFEZIONE",
+            "YOGURT",
+            "FROLLINI",
+            "GRATINATI",
+            "MERLUZZO",
+            "ALASKA",
+            "OCEANO",
+            "PACIFICO",
+            "SOGNI",
+            "PARTIRE",
+            "MA",
+            "VAI",
+            "SOLO",
+            "POSSESSORI",
+            "QUESTOA",
+            "QUESTO",
+            "GIRO",
+            "VINCERE",
+            "CON",
+            "DELL",
+            "DELLA",
+            "DELLO",
+            "DEGLI",
+            "DELLE",
+            "AI",
+            "AGLI",
+            "ALLE",
+            "DA",
         }
 
     def parse_flyer_validity(self, text: str) -> Optional[str]:
@@ -47,17 +160,19 @@ class ConadOfferParser(AbstractOfferParser):
             return match.group(0).strip()
         return None
 
-    def parse_cell(self, text: str, store_id: str, validity_string: Optional[str]) -> ProductOffer:
+    def parse_cell(
+        self, text: str, store_id: str, validity_string: Optional[str]
+    ) -> ProductOffer:
         """
         Extracts a validated ProductOffer model from a single cell's text block.
         Raises ValueError with description if the cell represents a non-product banner
         or lacks essential fields (like description or pricing).
-        
+
         Args:
             text: Isolated, sorted text block for the product cell.
             store_id: Active store identifier.
             validity_string: Flyer validity string.
-            
+
         Returns:
             A validated ProductOffer object.
         """
@@ -69,42 +184,60 @@ class ConadOfferParser(AbstractOfferParser):
 
         # 0. Check for non-product banner text blacklist
         blacklist_terms = [
-            "HeyConad", "CONDIZIONI DI VENDITA", "SOGNI DI PARTIRE", "LAVORA CON NOI",
-            "PUNTA A VINCERE", "REGOLAMENTO", "Cartolina", "La vendita dei prodotti",
-            "Fotografie e descrizioni", "opportunità lavorative", "diventa parte della nostra",
-            "Costruisci la tua storia", "viaggi.conad.it", "A QUESTO GIRO", "PUNTA A VINCERE",
-            "LA VORA CON NOI", "Costruisci la tua storia"
+            "HeyConad",
+            "CONDIZIONI DI VENDITA",
+            "SOGNI DI PARTIRE",
+            "LAVORA CON NOI",
+            "PUNTA A VINCERE",
+            "REGOLAMENTO",
+            "Cartolina",
+            "La vendita dei prodotti",
+            "Fotografie e descrizioni",
+            "opportunità lavorative",
+            "diventa parte della nostra",
+            "Costruisci la tua storia",
+            "viaggi.conad.it",
+            "A QUESTO GIRO",
+            "PUNTA A VINCERE",
+            "LA VORA CON NOI",
+            "Costruisci la tua storia",
         ]
         for term in blacklist_terms:
             if term.lower() in text.lower():
-                raise ValueError(f"Skipped: Contains non-product blacklist term '{term}'")
-            
+                raise ValueError(
+                    f"Skipped: Contains non-product blacklist term '{term}'"
+                )
+
         # 1. Check for 1+1 Strategy
         one_plus_one_match = self._one_plus_one.search(text)
-        
+
         price: Optional[float] = None
         original_price: Optional[float] = None
         discount_percent: Optional[int] = None
         promo_type = "STANDARD"
-        
+
         unit_price_str = self._extract_unit_price(text)
-        
+
         if one_plus_one_match:
-            single_price = float(f"{one_plus_one_match.group(1)}.{one_plus_one_match.group(2)}")
-            promo_price = float(f"{one_plus_one_match.group(3)}.{one_plus_one_match.group(4)}")
-            
+            single_price = float(
+                f"{one_plus_one_match.group(1)}.{one_plus_one_match.group(2)}"
+            )
+            promo_price = float(
+                f"{one_plus_one_match.group(3)}.{one_plus_one_match.group(4)}"
+            )
+
             price = promo_price
             original_price = single_price
             promo_type = "1+1"
         else:
             # 2. Extract standard prices
             prices_found = self._extract_prices(text, unit_price_str)
-            
+
             # Extract discount percentage if any
             pct_match = self._discount_pct.search(text)
             if pct_match:
                 discount_percent = int(pct_match.group(1))
-                
+
             if len(prices_found) == 1:
                 price = prices_found[0]
             elif len(prices_found) >= 2:
@@ -113,10 +246,12 @@ class ConadOfferParser(AbstractOfferParser):
                 price = sorted_prices[0]
                 original_price = sorted_prices[1]
                 promo_type = "PERCENTAGE_DISCOUNT" if discount_percent else "DISCOUNT"
-                
+
                 # Deduce discount percent if missing
                 if discount_percent is None and original_price > 0:
-                    discount_percent = int(round((1.0 - (price / original_price)) * 100))
+                    discount_percent = int(
+                        round((1.0 - (price / original_price)) * 100)
+                    )
 
         if price is None:
             raise ValueError("Skipped: No valid product price could be parsed")
@@ -138,7 +273,10 @@ class ConadOfferParser(AbstractOfferParser):
         # Create dummy ID since PDF records do not have EANs
         # Generates a unique key based on the product characteristics
         import hashlib
-        unique_payload = f"CONAD:{store_id}:{validity_string or 'ALL'}:{name_str}:{price:.2f}"
+
+        unique_payload = (
+            f"CONAD:{store_id}:{validity_string or 'ALL'}:{name_str}:{price:.2f}"
+        )
         offer_id = hashlib.sha256(unique_payload.encode("utf-8")).hexdigest()[:32]
 
         return ProductOffer(
@@ -156,7 +294,7 @@ class ConadOfferParser(AbstractOfferParser):
             image_url=None,
             category=None,
             promo_type=promo_type,
-            validity_string=validity_string
+            validity_string=validity_string,
         )
 
     def _extract_unit_price(self, text: str) -> Optional[str]:
@@ -175,7 +313,7 @@ class ConadOfferParser(AbstractOfferParser):
                     matches_found.append(f"€/l {price_val}")
                 else:
                     matches_found.append(f"€/pz {price_val}")
-                    
+
         if matches_found:
             return " ".join(matches_found)
         return None
@@ -185,26 +323,26 @@ class ConadOfferParser(AbstractOfferParser):
         Gathers distinct product decimal prices, ignoring matching unit price strings.
         """
         prices: List[float] = []
-        
+
         # Gather Pattern A: "1,29" or "1 , 29"
         for m in self._price_decimal.finditer(text):
             val = float(f"{m.group(1)}.{m.group(2)}")
             if val not in prices:
                 prices.append(val)
-                
+
         # Gather Pattern B: "1 € ,29"
         for m in self._price_separated.finditer(text):
             val = float(f"{m.group(1)}.{m.group(2)}")
             if val not in prices:
                 prices.append(val)
-                
+
         # If no standard prices found, try split price
         if not prices:
             for m in self._price_split.finditer(text):
                 val = float(f"{m.group(1)}.{m.group(2)}")
                 if val not in prices:
                     prices.append(val)
-                    
+
         # Super robust split price fallback: look for separate euros and cents in isolated card text
         if not prices:
             cents_match = re.search(r",\s*(\d{2})\b", text)
@@ -222,7 +360,7 @@ class ConadOfferParser(AbstractOfferParser):
                 if candidates:
                     euros = candidates[0]
                     prices.append(float(f"{euros}.{cents}"))
-                    
+
         # Filter unit prices out of selling prices
         if unit_price_str:
             unit_price_matches = self._price_decimal.findall(unit_price_str)
@@ -230,7 +368,7 @@ class ConadOfferParser(AbstractOfferParser):
                 unit_val = float(f"{m[0]}.{m[1]}")
                 if unit_val in prices:
                     prices.remove(unit_val)
-                    
+
         # Fallback to the unit price if absolutely no other prices exist (priced by weight counter items)
         if not prices and unit_price_str:
             unit_price_matches = self._price_decimal.findall(unit_price_str)
@@ -238,7 +376,7 @@ class ConadOfferParser(AbstractOfferParser):
                 unit_val = float(f"{m[0]}.{m[1]}")
                 if unit_val not in prices:
                     prices.append(unit_val)
-                    
+
         return prices
 
     def _extract_brand(self, text: str) -> Optional[str]:
@@ -247,65 +385,80 @@ class ConadOfferParser(AbstractOfferParser):
         """
         words = text.split()
         brand_words = []
-        
+
         for w in words:
             # Strip punctuation
             w_clean = re.sub(r"[^\w\s]", "", w).strip()
             if not w_clean or len(w_clean) < 3:
                 continue
-                
+
             # If word is entirely uppercase and not a stop word
-            if w_clean.isupper() and w_clean.isalpha() and w_clean not in self._brand_stop_words:
+            if (
+                w_clean.isupper()
+                and w_clean.isalpha()
+                and w_clean not in self._brand_stop_words
+            ):
                 brand_words.append(w_clean)
             else:
                 # Break contiguous sequence of brand words if we encounter a non-brand word
                 if brand_words:
                     break
-                    
+
         if brand_words:
             return " ".join(brand_words)
         return None
 
-
-    def _extract_clean_name(self, text: str, brand: Optional[str], weight: Optional[str]) -> Optional[str]:
+    def _extract_clean_name(
+        self, text: str, brand: Optional[str], weight: Optional[str]
+    ) -> Optional[str]:
         """
         Extracts and cleans a descriptive product name by removing brands, weights, and price info.
         This subtractive approach is highly robust to layout variations and text-line orders.
         """
         # Remove 1+1 pricing blocks
         clean_text = self._one_plus_one.sub("", text)
-        
+
         # Remove split pricing blocks
         clean_text = self._price_split.sub("", clean_text)
-        
+
         # Remove discount percentages
         clean_text = self._discount_pct.sub("", clean_text)
-        
+
         # Remove unit price strings
         for pattern in self._unit_price_patterns:
             clean_text = pattern.sub("", clean_text)
-            
+
         # Remove generic decimal prices
         clean_text = self._price_decimal.sub("", clean_text)
         clean_text = self._price_separated.sub("", clean_text)
-        
+
         # Remove pricing keywords and symbols
-        keywords_to_remove = ["1 pezzo", "2 pezzi", "anziché", "anzichè", "€", " al ", "al kg", "al lt", "al pz"]
+        keywords_to_remove = [
+            "1 pezzo",
+            "2 pezzi",
+            "anziché",
+            "anzichè",
+            "€",
+            " al ",
+            "al kg",
+            "al lt",
+            "al pz",
+        ]
         for kw in keywords_to_remove:
             clean_text = re.sub(re.escape(kw), "", clean_text, flags=re.IGNORECASE)
-            
+
         # Remove brand from the name if present
         if brand:
             clean_text = re.sub(re.escape(brand), "", clean_text, flags=re.IGNORECASE)
-            
+
         # Remove weight from the name if present
         if weight:
             clean_text = re.sub(re.escape(weight), "", clean_text, flags=re.IGNORECASE)
-            
+
         # Clean double spaces, punctuation, and leading/trailing margins
         clean_text = re.sub(r"\s+", " ", clean_text)
         clean_text = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9)]+$", "", clean_text).strip()
-        
+
         # If the name is unusually long (potential description paragraph leak)
         if clean_text and len(clean_text) > 80:
             parts = re.split(r"(?:•|\.|\n|;)", clean_text)
@@ -314,12 +467,22 @@ class ConadOfferParser(AbstractOfferParser):
                 part = part.strip()
                 if not part or len(part) < 3:
                     continue
-                
+
                 # Skip technical specification segments
                 is_spec = False
                 spec_keywords = [
-                    "tipologia", "vitigni", "aspetto", "bouquet", "sapore", "gradazione", 
-                    "temperatura", "abbinament", "colore", "profumo", "uvaggio", "zona di"
+                    "tipologia",
+                    "vitigni",
+                    "aspetto",
+                    "bouquet",
+                    "sapore",
+                    "gradazione",
+                    "temperatura",
+                    "abbinament",
+                    "colore",
+                    "profumo",
+                    "uvaggio",
+                    "zona di",
                 ]
                 for kw in spec_keywords:
                     if kw in part.lower()[:20]:
@@ -327,35 +490,75 @@ class ConadOfferParser(AbstractOfferParser):
                         break
                 if is_spec:
                     continue
-                
+
                 # Skip segments with high density of lowercase narrative text
                 words = [w for w in part.split() if w.strip() and w.isalpha()]
                 if len(words) > 4:
-                    ignore_linking = {"di", "da", "con", "a", "al", "alla", "e", "per", "in", "dei", "della", "del", "o", "ed"}
-                    content_words = [w for w in words if w.lower() not in ignore_linking]
+                    ignore_linking = {
+                        "di",
+                        "da",
+                        "con",
+                        "a",
+                        "al",
+                        "alla",
+                        "e",
+                        "per",
+                        "in",
+                        "dei",
+                        "della",
+                        "del",
+                        "o",
+                        "ed",
+                    }
+                    content_words = [
+                        w for w in words if w.lower() not in ignore_linking
+                    ]
                     if content_words:
-                        upper_words = sum(1 for w in content_words if w[0].isupper() or w.isupper())
+                        upper_words = sum(
+                            1 for w in content_words if w[0].isupper() or w.isupper()
+                        )
                         ratio = upper_words / len(content_words)
                         # Narrative indicators: verbs/pronouns common in descriptive sentences
-                        narrative_indicators = {"è", "sono", "ha", "hanno", "fu", "furono", "trovato", "trovati", "si", "fa", "fatto", "che", "chi", "quale", "qualora"}
-                        has_narrative_words = any(w.lower() in narrative_indicators for w in words)
+                        narrative_indicators = {
+                            "è",
+                            "sono",
+                            "ha",
+                            "hanno",
+                            "fu",
+                            "furono",
+                            "trovato",
+                            "trovati",
+                            "si",
+                            "fa",
+                            "fatto",
+                            "che",
+                            "chi",
+                            "quale",
+                            "qualora",
+                        }
+                        has_narrative_words = any(
+                            w.lower() in narrative_indicators for w in words
+                        )
                         if ratio < 0.4 or (ratio < 0.6 and has_narrative_words):
-                            logger.info(f"Filtered narrative description segment from name: '{part}'")
+                            logger.info(
+                                f"Filtered narrative description segment from name: '{part}'"
+                            )
                             continue
-                
+
                 valid_parts.append(part)
-            
+
             clean_text = " ".join(valid_parts)
             clean_text = re.sub(r"\s+", " ", clean_text)
-            clean_text = re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9)]+$", "", clean_text).strip()
-            
+            clean_text = re.sub(
+                r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9)]+$", "", clean_text
+            ).strip()
+
         # Hard limit to prevent UI overflow/breakage
         if clean_text and len(clean_text) > 90:
             logger.warning(f"Truncating extremely long product name: '{clean_text}'")
             clean_text = clean_text[:87] + "..."
-            
+
         # Re-incorporate the brand at the beginning for database standard layout
         if brand and clean_text:
             return f"{brand} {clean_text}"
         return clean_text if clean_text else None
-

@@ -1,1 +1,1 @@
-from drivers.coop.coop_driver import CoopSupermarketDriver
+from drivers.coop.coop_driver import CoopSupermarketDriver as CoopSupermarketDriver

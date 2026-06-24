@@ -1,9 +1,8 @@
 import os
 import re
 import requests
-import json
 from bs4 import BeautifulSoup
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Dict
 
 from core.base_pdf_driver import AbstractPdfFlyerDriver
 from core.base_pdf_segmenter import BasePdfLayoutSegmenter
@@ -26,9 +25,14 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         parallel: bool = False,
         use_gemini: bool = False,
         use_claude: bool = False,
-        engine: str = "AUTO"
+        engine: str = "AUTO",
     ) -> None:
-        super().__init__(parallel=parallel, use_gemini=use_gemini, use_claude=use_claude, engine=engine)
+        super().__init__(
+            parallel=parallel,
+            use_gemini=use_gemini,
+            use_claude=use_claude,
+            engine=engine,
+        )
         self._ins_segmenter = BasePdfLayoutSegmenter()
         self._ins_parser = InsOfferParser()
         self.max_flyers = max_flyers
@@ -66,77 +70,108 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         Crawls the wordpress volantino page to find IN's Mercato stores matching coordinates or text query.
         """
         city_query = self._resolve_coordinates_to_city(store_id)
-        
+
         url = "https://www.insmercato.it/volantino/"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
-        
+
         try:
             res = requests.get(url, headers=headers, timeout=15)
             res.raise_for_status()
-            res.encoding = 'utf-8'
+            res.encoding = "utf-8"
         except Exception as e:
             logger.error(f"Failed to crawl IN's volantino entrypoint URL: {e}")
             return []
-            
+
         soup = BeautifulSoup(res.text, "html.parser")
         spans = soup.find_all("span", class_="store-option")
-        
+
         stores_list = []
-        
-        ignore_words = {"di", "del", "della", "dei", "degli", "da", "dal", "in", "con", "su", "per", "tra", "fra", "la", "il", "i", "gli", "le", "un", "una", "uno"}
+
+        ignore_words = {
+            "di",
+            "del",
+            "della",
+            "dei",
+            "degli",
+            "da",
+            "dal",
+            "in",
+            "con",
+            "su",
+            "per",
+            "tra",
+            "fra",
+            "la",
+            "il",
+            "i",
+            "gli",
+            "le",
+            "un",
+            "una",
+            "uno",
+        }
         query_words = [
-            w.lower() for w in re.split(r"[^\w\s]", city_query) 
+            w.lower()
+            for w in re.split(r"[^\w\s]", city_query)
             if w.strip() and w.lower() not in ignore_words
         ]
         query_terms = []
         for qw in query_words:
             query_terms.extend([term for term in qw.split() if len(term) > 1])
-            
+
         for s in spans:
             loc = s.get("data-location", "") or ""
             addr = s.get("data-address", "") or ""
             code_one = s.get("data-code-one", "") or ""
             code_two = s.get("data-code-two", "") or ""
-            
+
             code = code_two if code_two else code_one
             if not code:
                 code = "E-Campagna-OF"
-                
+
             if store_id.strip().upper() in (code_one.upper(), code_two.upper()):
-                stores_list.append({
-                    "id": code,
-                    "name": f"IN's {loc}",
-                    "address": addr,
-                    "city": loc,
-                    "distance": 0.0
-                })
+                stores_list.append(
+                    {
+                        "id": code,
+                        "name": f"IN's {loc}",
+                        "address": addr,
+                        "city": loc,
+                        "distance": 0.0,
+                    }
+                )
                 continue
-                
+
             search_space = (loc + " " + addr).lower()
             if any(term in search_space for term in query_terms):
-                stores_list.append({
-                    "id": code,
-                    "name": f"IN's {loc}",
-                    "address": addr,
-                    "city": loc,
-                    "distance": None
-                })
-                
+                stores_list.append(
+                    {
+                        "id": code,
+                        "name": f"IN's {loc}",
+                        "address": addr,
+                        "city": loc,
+                        "distance": None,
+                    }
+                )
+
         if not stores_list:
             for s in spans[:30]:
                 loc = s.get("data-location", "") or ""
                 addr = s.get("data-address", "") or ""
-                code = s.get("data-code-two") or s.get("data-code-one") or "E-Campagna-OF"
-                stores_list.append({
-                    "id": code,
-                    "name": f"IN's {loc}",
-                    "address": addr,
-                    "city": loc,
-                    "distance": None
-                })
-                
+                code = (
+                    s.get("data-code-two") or s.get("data-code-one") or "E-Campagna-OF"
+                )
+                stores_list.append(
+                    {
+                        "id": code,
+                        "name": f"IN's {loc}",
+                        "address": addr,
+                        "city": loc,
+                        "distance": None,
+                    }
+                )
+
         return stores_list
 
     def _resolve_flyer_pdf_url(self, store_id: str) -> Optional[str]:
@@ -145,18 +180,20 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         """
         # Resolve GPS coordinates to city name
         city_query = self._resolve_coordinates_to_city(store_id)
-        logger.info(f"Searching IN's Mercato flyer for store location matching: '{city_query}'")
+        logger.info(
+            f"Searching IN's Mercato flyer for store location matching: '{city_query}'"
+        )
 
         # 1. Fetch the volantino entrypoint page
         url = "https://www.insmercato.it/volantino/"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
-        
+
         try:
             res = requests.get(url, headers=headers, timeout=15)
             res.raise_for_status()
-            res.encoding = 'utf-8'
+            res.encoding = "utf-8"
         except Exception as e:
             logger.error(f"Failed to crawl IN's volantino entrypoint URL: {e}")
             return None
@@ -164,21 +201,25 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         # 2. Parse WordPress JavaScript configuration block variables
         soup = BeautifulSoup(res.text, "html.parser")
         all_stores_div = soup.find("div", class_=lambda c: c and "all-stores" in c)
-        
+
         if not all_stores_div:
-            logger.error("Could not locate hidden 'all-stores' container in the IN's page.")
+            logger.error(
+                "Could not locate hidden 'all-stores' container in the IN's page."
+            )
             return None
 
         default_url = all_stores_div.get("data-default-url")
         current_flyer = str(all_stores_div.get("data-current-flyer", "2"))
-        
+
         if current_flyer == "2":
             edition_path = all_stores_div.get("data-edition-two")
         else:
             edition_path = all_stores_div.get("data-edition-one")
 
         if not default_url or not edition_path:
-            logger.error("Missing critical WordPress CDN parameters in WordPress store selector.")
+            logger.error(
+                "Missing critical WordPress CDN parameters in WordPress store selector."
+            )
             return None
 
         logger.info(f"CDN Base URL: {default_url} | Edition Path: {edition_path}")
@@ -199,9 +240,32 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
 
         # 3.2 If no direct code match, find the best text matching span by counting overlapping words
         if not matched_span:
-            ignore_words = {"di", "del", "della", "dei", "degli", "da", "dal", "in", "con", "su", "per", "tra", "fra", "la", "il", "i", "gli", "le", "un", "una", "uno"}
+            ignore_words = {
+                "di",
+                "del",
+                "della",
+                "dei",
+                "degli",
+                "da",
+                "dal",
+                "in",
+                "con",
+                "su",
+                "per",
+                "tra",
+                "fra",
+                "la",
+                "il",
+                "i",
+                "gli",
+                "le",
+                "un",
+                "una",
+                "uno",
+            }
             query_words = [
-                w.lower() for w in re.split(r"[^\w\s]", city_query) 
+                w.lower()
+                for w in re.split(r"[^\w\s]", city_query)
                 if w.strip() and w.lower() not in ignore_words
             ]
             query_terms = []
@@ -213,7 +277,7 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
                 loc = s.get("data-location", "") or ""
                 addr = s.get("data-address", "") or ""
                 search_space = (loc + " " + addr).lower()
-                
+
                 match_count = sum(1 for term in query_terms if term in search_space)
                 if match_count > best_match_count:
                     best_match_count = match_count
@@ -226,7 +290,9 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
             else:
                 store_code = matched_span.get("data-code-one")
         else:
-            logger.warning(f"No specific store matched city '{city_query}'. Defaulting to 'E-Campagna-OF' (Cesena region).")
+            logger.warning(
+                f"No specific store matched city '{city_query}'. Defaulting to 'E-Campagna-OF' (Cesena region)."
+            )
             store_code = "E-Campagna-OF"
 
         if not store_code:
@@ -249,13 +315,15 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         except Exception as e:
             logger.error(f"Failed to resolve INS flyer PDF URL: {e}")
 
-        return [{
-            "id": store_code,
-            "title": f"IN's Flyer Circular ({store_code})",
-            "validity": "Active Circular",
-            "featured": True,
-            "pdf_url": pdf_url
-        }]
+        return [
+            {
+                "id": store_code,
+                "title": f"IN's Flyer Circular ({store_code})",
+                "validity": "Active Circular",
+                "featured": True,
+                "pdf_url": pdf_url,
+            }
+        ]
 
     def download_flyers(self, store_id: str) -> List[str]:
         """
@@ -271,14 +339,16 @@ class INSSupermarketDriver(AbstractPdfFlyerDriver):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         }
-        
+
         # 5. Download the PDF flyer locally
         filename = f"ins_{store_code}.pdf"
         os.makedirs(self._download_subdir, exist_ok=True)
         local_path = os.path.join(self._download_subdir, filename)
 
         if os.path.exists(local_path):
-            logger.info(f"IN's flyer PDF already cached locally: '{filename}'. Skipping download.")
+            logger.info(
+                f"IN's flyer PDF already cached locally: '{filename}'. Skipping download."
+            )
             return [local_path]
 
         logger.info(f"Downloading IN's flyer PDF to '{filename}'...")
